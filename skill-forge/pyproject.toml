@@ -1,0 +1,16 @@
+[project]
+name = "skill-forge"
+version = "0.1.0"
+description = "Meta-skill: audit, create, improve, retire other skills."
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6.0", "pytest>=8.0"]
+
+[project.scripts]
+skill-forge = "scripts.run:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["scripts*"]
