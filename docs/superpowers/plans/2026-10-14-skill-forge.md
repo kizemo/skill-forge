@@ -75,6 +75,8 @@ skill-forge/                       ← top-level skill
 **Files:**
 - Create: `skill-forge/scripts/_lib/frontmatter.py`
 - Create: `skill-forge/scripts/_lib/sha.py`
+- Create: `skill-forge/scripts/__init__.py`(empty; turns `scripts/` into a regular package)
+- Create: `skill-forge/scripts/_lib/__init__.py`(empty)
 - Create: `skill-forge/tests/conftest.py`
 - Create: `skill-forge/tests/test_frontmatter.py`
 - Create: `skill-forge/tests/test_sha.py`
@@ -85,7 +87,7 @@ skill-forge/                       ← top-level skill
 **Interfaces:**
 - Consumes: nothing (this is the bottom of the dependency graph)
 - Produces:
-  - `scripts._lib.frontmatter.load(path: Path) -> dict[str, Any]`: parses YAML frontmatter; raises `FrontmatterError` on missing/duplicate/invalid `---` fences; returns dict including any extra keys (do not whitelist).
+  - `scripts._lib.frontmatter.load(path: Path) -> dict[str, Any]`: parses YAML frontmatter; **only the FIRST `---` after line 1 counts as the closing fence**; later `---` lines are body content (horizontal rules are common); raises `FrontmatterError` on missing opening/closing fence or invalid YAML; returns dict including any extra keys (do not whitelist).
   - `scripts._lib.sha.content_hash(text: str) -> str`: stable 8-char hex digest; same algorithm as gbrain `best.md` SHA naming convention.
 
 Review Focus pin 3 tests live in this task (`test_audit.py` later).
@@ -143,28 +145,31 @@ Expected: `ModuleNotFoundError: No module named 'scripts._lib.frontmatter'` and 
 - [ ] **Step 3: Implement `_lib/frontmatter.py`**
 
 ```python
-"""YAML frontmatter loader. Pure helper, no phase-script deps."""
+"""YAML frontmatter loader. Pure helper, no phase-script deps.
+
+Only the FIRST `---` after line 1 is the closing fence; later `---` lines
+are body content (commonly horizontal rules), not duplicates.
+"""
 from pathlib import Path
 from typing import Any
 import yaml
 
 class FrontmatterError(Exception):
-    """Raised when frontmatter is missing, malformed, or has duplicate fences."""
+    """Raised when frontmatter is missing, malformed, or absent."""
 
 def load(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         raise FrontmatterError(f"{path}: missing opening '---' fence on line 1")
-    closes: list[int] = []
+    close_at: int | None = None
     for i, line in enumerate(lines[1:], start=2):
         if line.strip() == "---":
-            closes.append(i)
-    if not closes:
+            close_at = i
+            break
+    if close_at is None:
         raise FrontmatterError(f"{path}: missing closing '---' fence")
-    if len(closes) > 1:
-        raise FrontmatterError(f"{path}: duplicate closing '---' fence (lines {closes})")
-    raw = "\n".join(lines[1:closes[0]-1])
+    raw = "\n".join(lines[1:close_at-1])
     try:
         data = yaml.safe_load(raw) or {}
     except yaml.YAMLError as e:
