@@ -1,7 +1,14 @@
 ---
 name: skill-forge
-description: Use when a skill is not producing the quality you want, when you want to bootstrap a benchmark for a new skill, when an existing skill needs measurable improvement against a frozen baseline, or when retiring a skill that has outlived its purpose. Triggers: "improve this skill", "skill won't trigger", "audit skill quality", "fix skill underperformance", "make a skill benchmark", "retire old skill", "skill produces shallow output".
+description: >-
+  Use when a skill is not producing the quality you want, when you want to
+  bootstrap a benchmark for a new skill, when an existing skill needs
+  measurable improvement against a frozen baseline, or when retiring a
+  skill that has outlived its purpose. Triggers: "improve this skill",
+  "skill won't trigger", "audit skill quality", "fix skill underperformance",
+  "make a skill benchmark", "retire old skill", "skill produces shallow output".
 mutating: true
+brain_first: exempt
 ---
 
 # skill-forge
