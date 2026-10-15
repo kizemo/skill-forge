@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 from scripts.audit import AuditReport
+from scripts._lib.bundle import is_bundled
 
 Target = Literal["gbrain-skillopt", "skill-creator", "diagnose-only"]
 
@@ -16,10 +17,25 @@ class RouteResult:
     exit_code: int
     stdout: str
     degraded: bool = False
+    # v2-T4: machine-readable degradation cause. Backwards-compatible
+    # widening — existing positional/keyword construction is unaffected.
+    reason: str | None = None
 
 def route(skill_dir: Path, scope: str, report: AuditReport, *, gbrain_bin: str = "gbrain") -> RouteResult:
     if scope == "retire":
         return RouteResult("diagnose-only", 0, "retire: no forwarding", degraded=True)
+    # v2-T4: bundled-skill safety — never forward to gbrain or the shim when
+    # the skill is part of a gbrain marketplace install. The bundled install
+    # is read-only from skill-forge's perspective; proposed changes land in
+    # proposed.md (caller's copy), never in the bundled SKILL.md. This
+    # short-circuit runs AFTER the retire check and BEFORE any subprocess.
+    if is_bundled(skill_dir):
+        intended = gbrain_bin if scope == "improve" else "skill-creator"
+        msg = (
+            f"[bundled-skill-safety] refusing to forward to {intended}: "
+            f"skill at {skill_dir} is bundled (write proposed.md only)"
+        )
+        return RouteResult("diagnose-only", 0, msg, degraded=True, reason="bundled-skill-safety")
     if shutil.which(gbrain_bin):
         cmd = [gbrain_bin, "skillopt", skill_dir.name, "--dry-run", "--bootstrap-reviewed"]
         r = subprocess.run(cmd, capture_output=True, timeout=120)

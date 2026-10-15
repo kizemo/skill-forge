@@ -94,6 +94,37 @@ def test_route_passes_resolved_skill_dir_via_env_or_argv(tmp_path, monkeypatch):
     # And it must NOT be the caller's cwd (the v1 bug).
     assert propagated != str(Path.cwd()) or propagated == str(skill.resolve())
 
+def test_route_returns_bundled_skill_safety_when_skill_is_installed(tmp_path, monkeypatch):
+    """v2-T4: a bundled skill must NOT be forwarded to gbrain or the shim.
+    route() returns a diagnose-only degraded RouteResult with reason set,
+    without invoking subprocess.run at all."""
+    import json
+    install = tmp_path / "install.json"
+    skill = tmp_path / "plugins" / "bundled-skill"
+    skill.mkdir(parents=True)
+    install.write_text(
+        json.dumps({"bundled-skill": str(skill.resolve())}),
+        encoding="utf-8",
+    )
+    # INSTALL_JSON is captured at import time; override it directly.
+    monkeypatch.setattr("scripts._lib.bundle.INSTALL_JSON", install)
+    # If route() actually called subprocess.run, this would record an entry.
+    # It must NOT — bundled skills short-circuit.
+    called: list[bool] = []
+    def fake_run(cmd, **kw):
+        called.append(True)
+        class R: returncode = 0; stdout = b""; stderr = b""
+        return R()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None)
+    r = route(skill, "improve", AuditReport("prompt", 0.8, [], "improve"))
+    assert r.forwarded_to == "diagnose-only"
+    assert r.degraded is True
+    assert r.reason == "bundled-skill-safety"
+    assert r.exit_code == 0  # bundled-safety is not an error, it's a deliberate degrade
+    assert called == [], f"subprocess.run was called for a bundled skill: {called!r}"
+
+
 def test_legacy_shim_refuses_when_skill_dir_missing(monkeypatch, capsys):
     """v2-T3: _legacy_init_skill.py's main([]) with SKILL_DIR unset must
     emit a [FATAL] line to stderr and return 2. The shim never silently

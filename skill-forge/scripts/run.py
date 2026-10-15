@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Sequence
 from scripts.audit import audit
 from scripts.bootstrap_benchmark import bootstrap as bootstrap_benchmark
+from scripts._lib.bundle import is_bundled
 from scripts.judge_triple import judge
 from scripts.router import RouteResult, route
 
@@ -15,12 +16,28 @@ PHASES = ("audit", "scope", "bootstrap", "forward", "verify", "materialize")
 def _emit(phase: int, name: str, msg: str) -> None:
     print(f"[phase {phase}] {name}: {msg}", flush=True)
 
-def _materialize(skill_dir: Path, verdict: bool, root_cause: str) -> Path:
+def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bool = False) -> Path:
     out = skill_dir / "audit-report.md"
     out.write_text(
         f"# skill-forge audit\n\nroot_cause: {root_cause}\nverdict: {'accept' if verdict else 'refuse'}\n",
         encoding="utf-8",
     )
+    if bundled and verdict:
+        # v2-T4: bundled skills are read-only from skill-forge's perspective.
+        # Write the proposed SKILL.md content to proposed.md (caller-side, for
+        # human review before merge); never write to the bundled SKILL.md.
+        proposed = skill_dir / "proposed.md"
+        # The proposed content is the verdict + root_cause note, because
+        # skill-forge has not yet authored a replacement SKILL.md (the
+        # audit/bootstrap phases produce diagnostics, not new content). The
+        # real "propose" content is authored in a later phase.
+        proposed.write_text(
+            f"# Proposed changes for bundled skill at {skill_dir}\n\n"
+            f"audit root_cause: {root_cause}\nverdict: {'accept' if verdict else 'refuse'}\n\n"
+            f"(See audit-report.md for the full audit summary.)\n",
+            encoding="utf-8",
+        )
+        return proposed  # newest written path, for the phase-5 marker
     return out
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -34,6 +51,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not skill_dir.exists():
         print(f"error: {skill_dir} does not exist", file=sys.stderr)
         return 2
+    bundled = is_bundled(skill_dir)  # v2-T4: computed once, reused by _materialize
     report = audit(skill_dir)
     _emit(0, "audit", f"root_cause={report.root_cause} scope={report.recommend_scope}")
     if args.scope != report.recommend_scope and report.confidence >= 0.85 and report.root_cause != "missing":
@@ -48,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rresult = route(skill_dir, args.scope, report)
     except (OSError, subprocess.SubprocessError) as e:
         rresult = RouteResult("diagnose-only", 2, str(e), degraded=True)
-    _emit(3, "forward", f"target={rresult.forwarded_to} degraded={rresult.degraded} exit={rresult.exit_code}")
+    _emit(3, "forward", f"target={rresult.forwarded_to} degraded={rresult.degraded} exit={rresult.exit_code} reason={rresult.reason or '—'}")
     candidate = skill_dir / "SKILL.md"
     baseline = candidate  # RULING-8 part 2: baseline is reserved by T5's signature; T7 v1 passes candidate as both
     # v1 wires no rubric; RULING-8: rubric state is derived from llm_call at the call
@@ -57,7 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     v = judge(candidate, baseline, report, llm_call=llm_call, spot_input=None if args.spot_check == 0 else {"verdict": True})
     rubric = "rubric-skipped" if llm_call is None else f"llm={v.llm_score:.2f}"
     _emit(4, "verify", f"det={v.deterministic_pass} {rubric} spot={v.spot_accepted} accept={v.accept}")
-    materialize_path = _materialize(skill_dir, v.accept, report.root_cause)
+    materialize_path = _materialize(skill_dir, v.accept, report.root_cause, bundled=bundled)
     _emit(5, "materialize", f"wrote {materialize_path.name}")
     return 0 if v.accept else 2
 
