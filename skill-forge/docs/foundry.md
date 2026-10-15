@@ -28,7 +28,7 @@ the commit that landed it:
 | RULING-5 | `description:` must be a YAML block scalar (`>-`) | `14c4ac9` |
 | RULING-6 | `audit()` precedence: contract scan before body-length | `9155b4e` |
 | RULING-7 | `bootstrap()` cycles the template bucket to reach `n_tasks` | `fd86978` |
-| RULING-8 | rubric-skipped is invisible in the verdict; `baseline` reserved | `4fc95e2` |
+| RULING-8 | rubric-skipped is invisible in the verdict; `baseline` reserved (v1) / consumed by the rubric prompt (v2-T2, `3020cb2`) | `4fc95e2` |
 | RULING-9 | `route()` subprocess is unguarded → wrap at the call site | `bec007e`, wrapped `66a7cf0` |
 | RULING-6 corollary | `audit()` fixtures targeting `contract`/`prompt` must start `description` with `Use when` | `4e3c1b4` |
 | RULING-9 v2 | Router invokes the shim with `sys.executable`; shim takes the skill dir via `SKILL_DIR` env or `argv[0]` | `072db5e` |
