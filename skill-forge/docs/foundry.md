@@ -81,6 +81,7 @@ verbatim from the `argparse` calls, not paraphrased.
 | `--scope` | choice | yes | — | One of `create`, `improve`, `audit-only`, `retire`. |
 | `--benchmark` | `Path` | no | `None` | Existing JSONL to reuse. `None` → Phase 2 generates one. |
 | `--spot-check` | `int` | no | `0` | `0` → no spot-check (Phase 4 reports `spot=None`). Any other int wires `{"verdict": True}`. |
+| `--held-out` | `int` | no | `None` | Number of held-out tasks, passed to Phase 2 as `n_tasks`. `None` → Phase 2's default of `15`. **Refuses with exit `2` when N < 5.** |
 | `-h` / `--help` | flag | no | — | argparse help. `prog="skill-forge"`. |
 
 Notes:
@@ -97,18 +98,34 @@ Notes:
   It is advisory only — the run continues with the requested scope. In the T8
   E2E this fired, because the bundled skill audits as `routing` (confidence
   `0.85`, recommends `improve`).
-- Exit codes: `2` if `--skill` does not exist (with
+- Exit codes: `2` if `--held-out` is below `5` (with the `[FATAL]` line below on
+  stderr) or if `--skill` does not exist (with
   `error: <dir> does not exist` on stderr); otherwise `0` if Phase 4 accepted,
   `2` if it refused, and — **v2 only** — `3` if Phase 5 refused a bundled
   skill because `SKILL.md` drifted since the last run (`EEXIT_RACE`, see § 6).
   Phase 3's subprocess exit code does **not** become the process exit code —
   see § 4.
 
-**No new CLI flag landed in v2.** The table above is unchanged from v1; the
-v2 work hardened what happens *under* the existing flags (invocation, bundle
-detection, race detection, artifact naming) rather than adding surface. A
-`--held-out N` flag is planned but **not implemented** — see the open-backlog
-list at the end of § 8.
+**One new CLI flag landed in v2:** `--held-out N` (v2-T8). The other four rows
+are unchanged from v1; the rest of the v2 work hardened what happens *under*
+the existing flags (invocation, bundle detection, race detection, artifact
+naming) rather than adding surface.
+
+`--held-out` is a thin wrapper over Phase 2's existing `n_tasks` parameter
+(`bootstrap_benchmark.bootstrap(..., n_tasks=15)`); the default of `15` is
+preserved in both the function and the CLI, and only the call site changes.
+gbrain hard-refuses a held-out count below `5` internally, so the CLI surfaces
+the constraint up front instead of generating a benchmark the downstream call
+would reject:
+
+```
+[FATAL] --held-out must be >= 5 (gbrain hard-refuses held-out <5 internally); got 3
+```
+
+The guard short-circuits **before** the `--skill` existence check and before
+any phase runs, so no `audit-report.md`, no benchmark, and no baseline are
+written on a refused `--held-out`. Its exit code is `2` — the existing refuse
+code. Race stays `3` (Default Decision #3).
 
 ## 3. The six phases
 
@@ -611,8 +628,9 @@ Every item v1 parked here is now landed. For the record:
 - Wire a real `llm_call`. Until `run.py` stops hard-wiring `None`, the rubric
   branch is unreachable and every run is `rubric-skipped` (RULING-1).
 - A held-out split (`--held-out N`, refusing `N < 5`) to measure improvement
-  against data the judges have not seen. **Not yet implemented** — do not
-  document it as a flag until it lands.
+  against data the judges have not seen. **Landed in v2-T8** — see § 2. What
+  remains open is *using* the split (scoring held-out rows separately in the
+  verify phase); the flag itself only sizes the Phase 2 benchmark.
 - A complementary bundled-detection signal, so the guard is not dependent on
   `~/.gbrain/install.json` existing (§ 6).
 - The contract scan is still a substring heuristic, not an import resolver.
@@ -620,8 +638,10 @@ Every item v1 parked here is now landed. For the record:
 ## 9. v2 changelog
 
 v2 was eight tasks (T1 parser → T2 judge → T3 router → T4 bundle → T5 race →
-T6 env → T7 docs → T8 held-out) landing on the v1 HEAD, all on `main`. What
-changed, and the rulings that pin it:
+T6 env → T7 docs → T8 held-out) landing on the v1 HEAD, all on `main`. **All
+eight have landed** (T1–T7 landed in v2-T7; T8 in v2-T8, which also closed the
+v2-T7 reviewer's M-1 by recording T8 here). What changed, and the rulings that
+pin it:
 
 | Task | Change | Ruling |
 |---|---|---|
@@ -632,6 +652,7 @@ changed, and the rulings that pin it:
 | v2-T5 | `.skill-forge-baseline.json` SHA race check; `best.md` (non-bundled) / `proposed.md` (bundled); exit `3` on a bundled race | Default Decisions #3, #6 |
 | v2-T6 | The dead `env` `RootCause` member and its `TEMPLATES` bucket dropped | RULING-10 |
 | v2-T7 | This file, `README.md`, `SKILL.md`, and the v1 plan-doc typo; env-merge order flip + 5 regression tests | RULING-9 v2 corollary, RULING-6 corollary |
+| v2-T8 | `--held-out N` flag threaded into Phase 2's `n_tasks`; refuses with exit `2` before any phase runs when `N < 5`. Default `15` unchanged | Default Decision #3 (race stays `3`) |
 
 **Rulings added in v2** (full text in the v2 ledger, linked at the top of this
 file):
