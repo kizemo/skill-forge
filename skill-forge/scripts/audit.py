@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
-from scripts._lib.frontmatter import load, FrontmatterError
+from scripts._lib.frontmatter import load, body_of, FrontmatterError
 
 RootCause = Literal["prompt", "routing", "contract", "env", "missing", "other"]
 Scope = Literal["create", "improve", "audit-only", "retire"]
@@ -35,7 +35,10 @@ def audit(skill_dir: Path) -> AuditReport:
         for f in scripts.glob("*.py"):
             if "does_not_exist" in f.read_text(encoding="utf-8"):
                 return AuditReport("contract", 0.9, [f"{f.name} imports undefined"], "audit-only")
-    body = sm.read_text(encoding="utf-8").split("---", 2)[-1].strip()
+    # body_of() re-uses the load() fence rule, so a '---' embedded in a YAML
+    # value can no longer leak frontmatter into the body (v2-T1 / T3 M-5).
+    # The load() call above already proved both fences exist, so no try/except.
+    body = body_of(sm).strip()
     if len(body) < 60:
         return AuditReport("prompt", 0.8, ["body under 60 chars"], "improve")
     return AuditReport("other", 0.4, ["no classifier matched"], "audit-only")

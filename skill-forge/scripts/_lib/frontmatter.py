@@ -10,18 +10,25 @@ import yaml
 class FrontmatterError(Exception):
     """Raised when frontmatter is missing, malformed, or absent."""
 
+def _find_closer(lines: list[str], path: Path | None = None) -> int:
+    """Return the 1-based line index of the FIRST `---` after line 1 (RULING-3).
+
+    Shared by load() and body_of() so the two parsers cannot drift apart: any
+    change to the fence rule lands in exactly one place. Raises
+    FrontmatterError when line 1 is not a `---` fence or when no closer exists.
+    """
+    prefix = f"{path}: " if path is not None else ""
+    if not lines or lines[0].strip() != "---":
+        raise FrontmatterError(f"{prefix}missing opening '---' fence on line 1")
+    for i, line in enumerate(lines[1:], start=2):
+        if line.strip() == "---":
+            return i
+    raise FrontmatterError(f"{prefix}missing closing '---' fence")
+
 def load(path: Path) -> dict[str, Any]:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        raise FrontmatterError(f"{path}: missing opening '---' fence on line 1")
-    close_at: int | None = None
-    for i, line in enumerate(lines[1:], start=2):
-        if line.strip() == "---":
-            close_at = i
-            break
-    if close_at is None:
-        raise FrontmatterError(f"{path}: missing closing '---' fence")
+    close_at = _find_closer(lines, path)
     raw = "\n".join(lines[1:close_at-1])
     try:
         data = yaml.safe_load(raw) or {}
@@ -30,3 +37,20 @@ def load(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise FrontmatterError(f"{path}: frontmatter must be a mapping, got {type(data).__name__}")
     return data
+
+def body_of(path: Path) -> str:
+    """Return the body text after the first `---` closer, using the same
+    fence rule as load() (RULING-3). Only the FIRST `---` after line 1
+    is the closer; later `---` lines are body content.
+
+    Symmetric with load(): raises FrontmatterError on a missing opener or a
+    missing closer. There is no YAML-parse error path here — the YAML lives
+    in the frontmatter, and the body is plain text.
+
+    The return value keeps the body's own trailing newline; callers that care
+    about leading/trailing whitespace do their own .strip().
+    """
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    close_at = _find_closer(lines, path)
+    return "\n".join(lines[close_at:])

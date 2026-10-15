@@ -7,7 +7,7 @@ to a passive 0.5. Absent != failure.
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-from scripts._lib.frontmatter import load, FrontmatterError
+from scripts._lib.frontmatter import load, body_of, FrontmatterError
 from scripts.audit import AuditReport
 
 @dataclass
@@ -28,7 +28,12 @@ def _deterministic_trace(path: Path) -> bool:
         return False
     if not desc.lower().startswith("use when"):
         return False
-    body = path.read_text(encoding="utf-8").split("---", 2)[-1]
+    # body_of() re-uses the load() fence rule (v2-T1). A gate must never
+    # raise, so any structural error degrades to False just like load() does.
+    try:
+        body = body_of(path)
+    except FrontmatterError:
+        return False
     if "TODO" in body or "TBD" in body:
         return False
     return True
