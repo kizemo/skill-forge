@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
-from scripts._lib.frontmatter import load, body_of, FrontmatterError
+from scripts._lib.frontmatter import load, body_of, FrontmatterError, validate_skill_frontmatter
 
 # v2-T6 (RULING-10, Option A): "env" dropped from RootCause. v1 declared it
 # but no classifier branch in audit() ever returned it, so the value was
@@ -27,11 +27,16 @@ def audit(skill_dir: Path) -> AuditReport:
         fm = load(sm)
     except FrontmatterError as e:
         return AuditReport("other", 0.5, [str(e)], "audit-only")
+    # v2-T6+ (PRINCIPLES.md § 1): surface skill-writing-principle violations
+    # as evidence. These are warnings, not refusals — a skill that fails
+    # the principles is suboptimal, not broken. The materialize step still
+    # runs; the author reviews the warnings in audit-report.md.
+    fm_warnings = validate_skill_frontmatter(fm)
     desc = str(fm.get("description", ""))
     if not desc.lower().startswith("use when"):
         return AuditReport(
             "routing", 0.85,
-            [f"description does not start with 'Use when': {desc[:80]!r}"], "improve",
+            [f"description does not start with 'Use when': {desc[:80]!r}", *fm_warnings], "improve",
         )
     # Contract scan runs BEFORE the body-length heuristic: an undefined import is a
     # deterministic structural defect and outranks the soft "body too short" signal.
@@ -39,11 +44,11 @@ def audit(skill_dir: Path) -> AuditReport:
     if scripts.is_dir():
         for f in scripts.glob("*.py"):
             if "does_not_exist" in f.read_text(encoding="utf-8"):
-                return AuditReport("contract", 0.9, [f"{f.name} imports undefined"], "audit-only")
+                return AuditReport("contract", 0.9, [f"{f.name} imports undefined", *fm_warnings], "audit-only")
     # body_of() re-uses the load() fence rule, so a '---' embedded in a YAML
     # value can no longer leak frontmatter into the body (v2-T1 / T3 M-5).
     # The load() call above already proved both fences exist, so no try/except.
     body = body_of(sm).strip()
     if len(body) < 60:
-        return AuditReport("prompt", 0.8, ["body under 60 chars"], "improve")
-    return AuditReport("other", 0.4, ["no classifier matched"], "audit-only")
+        return AuditReport("prompt", 0.8, ["body under 60 chars", *fm_warnings], "improve")
+    return AuditReport("other", 0.4, ["no classifier matched", *fm_warnings], "audit-only")

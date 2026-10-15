@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from scripts._lib.frontmatter import load, FrontmatterError, body_of
+from scripts._lib.frontmatter import load, FrontmatterError, body_of, validate_skill_frontmatter
 
 
 def test_load_and_body_of_select_the_same_closer_on_inline_dashes(tmp_path):
@@ -137,3 +137,156 @@ def test_body_of_refuses_on_missing_opener(tmp_path):
     p.write_text("name: x\nno fence\n", encoding="utf-8")
     with pytest.raises(FrontmatterError):
         body_of(p)
+
+
+# ---------------------------------------------------------------------------
+# validate_skill_frontmatter — principles 1.1..1.8 (PRINCIPLES.md § 1)
+# ---------------------------------------------------------------------------
+
+def test_validate_skill_frontmatter_no_warnings_on_full_conformant_skill():
+    """A fully-conformant skill (all 8 frontmatter principles met) returns []."""
+    fm = {
+        "name": "skill-forge",
+        "version": "0.2.0",
+        "description": "Use when a skill is not producing the quality you want.",
+        "triggers": ["improve this skill", "audit skill quality", "fix skill"],
+        "tools": ["search", "list_pages"],
+        "mutating": True,
+        "brain_first": "exempt",
+        "when_to_use": "Use when the user asks: \"improve this skill\".",
+    }
+    assert validate_skill_frontmatter(fm) == []
+
+
+def test_validate_skill_frontmatter_no_warnings_on_recommended_minimum():
+    """A skill that satisfies the strict-parse principles (1.1, 1.3, 1.5)
+    but omits the convention-only fields (1.4 mutating, 1.6 brain_first,
+    1.7 when_to_use, 1.8 version) produces warnings on the omitted fields.
+
+    This test pins the contract: validate() is NOT a permission gate.
+    A skill that passes principles 1.1/1.3/1.5 (parsing) and 1.4 (mutating)
+    is a valid v0.2 skill; the other 4 are documented conventions."""
+    fm = {
+        "name": "skill-forge",
+        "description": "Use when a skill needs auditing.",
+        "triggers": ["improve this skill", "audit skill quality", "fix skill"],
+        "mutating": True,
+    }
+    warnings = validate_skill_frontmatter(fm)
+    # No warnings about name/description/triggers/mutating.
+    assert not any(("`name`" in w and "missing" in w) for w in warnings)
+    assert not any("`description`" in w and ("missing" in w or "1024" in w) for w in warnings)
+    assert not any("`triggers`" in w for w in warnings)
+    assert not any("`mutating`" in w and "missing" in w for w in warnings)
+    # But warnings on the convention fields.
+    assert any("`brain_first`" in w for w in warnings)
+    assert any("`when_to_use`" in w for w in warnings)
+    assert any("`version`" in w for w in warnings)
+
+
+def test_validate_warns_on_missing_name():
+    assert any("`name` is missing" in w for w in validate_skill_frontmatter({}))
+
+
+def test_validate_warns_on_non_kebab_name():
+    fm = {"name": "My Skill", "description": "Use when x.", "triggers": ["a", "b", "c"]}
+    warnings = validate_skill_frontmatter(fm)
+    assert any("kebab-case" in w for w in warnings)
+
+
+def test_validate_warns_on_missing_description():
+    fm = {"name": "skill-x", "triggers": ["a", "b", "c"]}
+    warnings = validate_skill_frontmatter(fm)
+    assert any("`description` is missing" in w for w in warnings)
+
+
+def test_validate_warns_on_empty_description():
+    fm = {"name": "skill-x", "description": "  ", "triggers": ["a", "b", "c"]}
+    assert any("`description` is missing" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_long_description():
+    fm = {
+        "name": "skill-x",
+        "description": "x" * 1100,
+        "triggers": ["a", "b", "c"],
+    }
+    assert any("1024" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_accepts_description_at_exactly_1024_chars():
+    fm = {
+        "name": "skill-x",
+        "description": "x" * 1024,
+        "triggers": ["a", "b", "c"],
+    }
+    # 1024 is the limit, not over — no warning.
+    assert all("1024" not in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_missing_triggers():
+    fm = {"name": "skill-x", "description": "Use when x."}
+    assert any("`triggers`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_empty_triggers_list():
+    fm = {"name": "skill-x", "description": "Use when x.", "triggers": []}
+    assert any("`triggers`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_too_few_triggers():
+    fm = {"name": "skill-x", "description": "Use when x.", "triggers": ["only one"]}
+    assert any("< 3" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_missing_mutating():
+    fm = {"name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"]}
+    assert any("`mutating`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_non_boolean_mutating():
+    fm = {"name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"], "mutating": "yes"}
+    assert any("`mutating`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_missing_brain_first():
+    fm = {
+        "name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"],
+        "mutating": True,
+    }
+    assert any("`brain_first`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_missing_when_to_use():
+    fm = {
+        "name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"],
+        "mutating": True, "brain_first": "exempt",
+    }
+    assert any("`when_to_use`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_missing_version():
+    fm = {
+        "name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"],
+        "mutating": True, "brain_first": "exempt", "when_to_use": "Use when x.",
+    }
+    assert any("`version`" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_non_semver_version():
+    fm = {
+        "name": "skill-x", "description": "Use when x.", "triggers": ["a", "b", "c"],
+        "mutating": True, "brain_first": "exempt", "when_to_use": "Use when x.",
+        "version": "v1",
+    }
+    assert any("semver" in w for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_never_raises_on_garbage():
+    """A frontmatter-shaped object that's not a dict (or contains non-string
+    values) must not raise — it must return a warnings list. The contract
+    is 'suboptimal, not broken' (PRINCIPLES.md § 1)."""
+    for fm in [None, "not a dict", 42, [], {"name": 123, "description": 456}]:
+        warnings = validate_skill_frontmatter(fm)  # type: ignore[arg-type]
+        assert isinstance(warnings, list)
+        assert len(warnings) > 0  # every garbage input is a violation

@@ -3,6 +3,7 @@
 Only the FIRST `---` after line 1 is the closing fence; later `---` lines
 are body content (commonly horizontal rules), not duplicates.
 """
+import re
 from pathlib import Path
 from typing import Any
 import yaml
@@ -59,3 +60,88 @@ def body_of(path: Path) -> str:
     lines = text.splitlines()
     close_at = _find_closer(lines, path)
     return "\n".join(lines[close_at:])
+
+
+# ---------------------------------------------------------------------------
+# Skill frontmatter validation (principles 1.1 - 1.8 in docs/PRINCIPLES.md)
+# ---------------------------------------------------------------------------
+#
+# A skill that fails these principles is suboptimal, not broken. The
+# materialize step still runs; the warnings are surfaced as evidence in
+# audit-report.md so the author can review. There is no "fail to install"
+# path — that would block the v0.2 contract (RULING-1: absent rubric ≠
+# failure; the same principle applies to principle-validation warnings).
+
+_NAME_KEBAB = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+_DESCRIPTION_MAX = 1024  # character budget for frontmatter description
+
+
+def validate_skill_frontmatter(fm: Any) -> list[str]:
+    """Return a list of human-readable warnings about frontmatter fields
+    that violate skill-writing principles. Empty list = no problems found.
+
+    Principles enforced (see docs/PRINCIPLES.md § 1):
+      1.1 — description: present, ≤ 1024 chars, leading-text-1-sentence
+      1.3 — triggers: non-empty list with ≥ 3 concrete phrases
+      1.4 — mutating: explicit boolean
+      1.5 — name: lowercase kebab-case
+      1.6 — brain_first: declared (exempt or required; the marketplace
+            convention; "absent" emits a warning)
+      1.7 — when_to_use: declared (one-line summary)
+      1.8 — version: semver
+
+    The function never raises. Missing fields produce a warning, not an
+    error, because skill-forge's contract is "audit, judge, materialize"
+    — failing the principles degrades the audit, it does not block the run.
+    Garbage inputs (None, non-dict, etc.) are treated as "no frontmatter
+    at all" and produce a single warning.
+    """
+    warnings: list[str] = []
+
+    if not isinstance(fm, dict):
+        warnings.append(f"frontmatter: expected a mapping, got {type(fm).__name__}")
+        return warnings
+
+    # 1.5 name: lowercase kebab-case
+    name = fm.get("name")
+    if not isinstance(name, str) or not name:
+        warnings.append("frontmatter: `name` is missing (skill cannot be referenced by the resolver)")
+    elif not _NAME_KEBAB.match(name):
+        warnings.append(f"frontmatter: `name` is {name!r}, expected lowercase kebab-case (e.g. 'my-skill')")
+
+    # 1.1 description: present, ≤ 1024 chars
+    desc = fm.get("description")
+    if not isinstance(desc, str) or not desc.strip():
+        warnings.append("frontmatter: `description` is missing or empty (skill will not be matched by description-based resolver)")
+    elif len(desc) > _DESCRIPTION_MAX:
+        warnings.append(f"frontmatter: `description` is {len(desc)} chars, recommended ≤ {_DESCRIPTION_MAX}")
+
+    # 1.3 triggers: non-empty list with ≥ 3 entries
+    triggers = fm.get("triggers")
+    if not isinstance(triggers, list) or not triggers:
+        warnings.append("frontmatter: `triggers` is missing or empty (skill will be matched only by description-similarity)")
+    elif len([t for t in triggers if isinstance(t, str) and t.strip()]) < 3:
+        warnings.append("frontmatter: `triggers` has < 3 concrete phrases (resolver match quality degrades)")
+
+    # 1.4 mutating: explicit boolean
+    if "mutating" not in fm:
+        warnings.append("frontmatter: `mutating` is missing (default false; skill may be confirmed unnecessarily before invocation)")
+    elif not isinstance(fm["mutating"], bool):
+        warnings.append(f"frontmatter: `mutating` is {fm['mutating']!r}, expected true or false")
+
+    # 1.6 brain_first: declared (exempt or required)
+    if "brain_first" not in fm:
+        warnings.append("frontmatter: `brain_first` is missing (declare 'exempt' or 'required' per gbrain convention)")
+
+    # 1.7 when_to_use: declared
+    if "when_to_use" not in fm:
+        warnings.append("frontmatter: `when_to_use` is missing (one-line summary recommended for marketplace listings)")
+
+    # 1.8 version: semver
+    version = fm.get("version")
+    if not isinstance(version, str) or not version:
+        warnings.append("frontmatter: `version` is missing (semver MAJOR.MINOR.PATCH recommended)")
+    elif not re.match(r"^\d+\.\d+\.\d+", version):
+        warnings.append(f"frontmatter: `version` is {version!r}, expected semver MAJOR.MINOR.PATCH")
+
+    return warnings
