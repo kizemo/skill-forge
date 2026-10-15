@@ -26,7 +26,11 @@ def _deterministic_trace(path: Path) -> bool:
     desc = fm.get("description", "")
     if not isinstance(name, str) or not name:
         return False
-    if not desc.lower().startswith("use when"):
+    # v2-T2 (RULING-8 v2 item 1): a non-string `description` (e.g. a YAML
+    # list) would raise AttributeError on .lower(). A gate must never raise;
+    # refuse instead. Same total-gate guarantee as the v2-T1 try/except
+    # around body_of() below — see review-v2-task-1.md § 7 carry-forward #3.
+    if not isinstance(desc, str) or not desc.lower().startswith("use when"):
         return False
     # body_of() re-uses the load() fence rule (v2-T1). A gate must never
     # raise, so any structural error degrades to False just like load() does.
@@ -46,7 +50,14 @@ def judge(candidate: Path, baseline: Path, report: AuditReport, *,
         llm_score = 0.0  # RULING-1: rubric absent → score 0, gate SKIPPED
         rubric_pass = True
     else:
-        llm_score = max(0.0, min(1.0, llm_call(f"score {candidate}")))
+        # v2-T2 (RULING-8 v2 item 2): `baseline` is now consumed. The rubric
+        # prompt carries both candidate and baseline paths so a real llm_call
+        # can perform the candidate-vs-baseline comparison. We pass paths only;
+        # the downstream llm_call reads the files itself. Reading the bodies
+        # here would be a second I/O path that must stay total; the path-only
+        # form keeps the call site a single try/except-free line.
+        prompt = f"score candidate={candidate} baseline={baseline}"
+        llm_score = max(0.0, min(1.0, llm_call(prompt)))
         rubric_pass = llm_score >= 0.6
     if spot_input is None:
         spot = None
