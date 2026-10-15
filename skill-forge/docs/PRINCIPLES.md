@@ -111,17 +111,22 @@ The principle: **frontmatter is always loaded; body is loaded on demand; referen
 
 ```
 skill-forge/
-├── SKILL.md              # frontmatter (always loaded) + lean body (loaded on demand)
-├── README.md             # the project-level landing page (GitHub homepage)
+├── SKILL.md                # frontmatter (always loaded) + lean body (loaded on demand)
+├── README.md               # the project-level landing page (GitHub homepage)
 ├── docs/
-│   ├── foundry.md        # heavy reference (~670 lines, loaded only when troubleshooting)
-│   ├── DEPLOYMENT.md     # local deployment notes (loaded only when cc-haha setup breaks)
-│   └── PRINCIPLES.md     # this file (loaded when a skill is being authored or audited)
-├── scripts/              # executable code (loaded only when actually running the skill)
-└── tests/                # test suite (loaded only by maintainers)
+│   ├── foundry-overview.md  # load on first trigger (~3000 tokens: install / CLI / Phase 5 / failure catalog)
+│   ├── foundry-details.md   # load only when troubleshooting (~4500 tokens: phases / gbrain / judges / safety)
+│   ├── foundry.md           # redirect (kept one release for backwards-compatible links)
+│   ├── DEPLOYMENT.md        # local deployment notes (loaded only when cc-haha setup breaks)
+│   └── PRINCIPLES.md        # this file (loaded when a skill is being authored or audited)
+├── references/              # heavy docs loaded on demand
+│   ├── hero-queries.md      # eval rubric for the resolver
+│   └── token-budget.md      # index/load/runtime tier checklist
+├── scripts/                 # executable code (loaded only when actually running the skill)
+└── tests/                   # test suite (loaded only by maintainers)
 ```
 
-A `SKILL.md` body under ~150 lines is the sweet spot. Anything longer belongs in `docs/`. The `description` in frontmatter should be loadable in a single screen; if it doesn't fit, it's a sign the skill is doing too many things and should be split.
+A `SKILL.md` body under ~150 lines is the sweet spot. Anything longer belongs in `docs/` or `references/`. The `description` in frontmatter should be loadable in a single screen; if it doesn't fit, it's a sign the skill is doing too many things and should be split.
 
 ---
 
@@ -218,8 +223,12 @@ Principles marked "No (structural)" are checked by `audit.py` evidence collectio
 ## 9. References
 
 - `analysis-2026-10-14.md` — the v0 spec that started the project
-- `docs/foundry.md` — heavy reference, especially § 0 (architecture) and § 5 (RULING-8)
+- `docs/foundry-overview.md` — load-on-first-trigger heavy reference (~3000 tokens)
+- `docs/foundry-details.md` — troubleshooting heavy reference (~4500 tokens), especially § 0 (architecture) and § 5 (RULING-8)
+- `docs/foundry.md` — redirect to overview + details (kept one release for backwards-compat)
 - `docs/DEPLOYMENT.md` — local Claude-skills deployment backup
+- `references/hero-queries.md` — the eval rubric for this skill
+- `references/token-budget.md` — the index/load/runtime tier checklist
 - gbrain:skill-creator — the source of the gbrain conformance conventions
 - gbrain:skill-optimizer — the bundled v0 of this skill, kept for back-compat
 
