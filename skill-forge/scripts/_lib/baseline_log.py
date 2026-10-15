@@ -69,13 +69,20 @@ def write_baseline(skill_dir: Path, sha: str) -> None:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f)
             os.replace(tmp, target)
-        except Exception:
-            # Clean up the temp file on any failure.
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        finally:
+            # If the replace succeeded, ``tmp`` no longer exists and the
+            # unlink is a no-op (caught by OSError). If anything inside the
+            # try raised, this cleans up the temp file before the exception
+            # propagates to the outer handler. Using finally instead of an
+            # ``except Exception: unlink; raise`` block tightens the
+            # never-raise contract: nothing other than
+            # ``(OSError, ValueError, RuntimeError)`` can ever escape, AND
+            # the temp file is guaranteed-clean on any path (post-v2 M-5).
+            if os.path.exists(tmp):
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
     except (OSError, ValueError, RuntimeError):
         return  # Never raise from the materialize path.
 
