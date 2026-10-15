@@ -1,14 +1,32 @@
 ---
 name: skill-forge
+version: 0.2.0
 description: >-
   Use when a skill is not producing the quality you want, when you want to
   bootstrap a benchmark for a new skill, when an existing skill needs
   measurable improvement against a frozen baseline, or when retiring a
-  skill that has outlived its purpose. Triggers: "improve this skill",
-  "skill won't trigger", "audit skill quality", "fix skill underperformance",
-  "make a skill benchmark", "retire old skill", "skill produces shallow output".
+  skill that has outlived its purpose.
+triggers:
+  - "improve this skill"
+  - "skill won't trigger"
+  - "audit skill quality"
+  - "fix skill underperformance"
+  - "make a skill benchmark"
+  - "retire old skill"
+  - "skill produces shallow output"
+tools:
+  - bash
+  - read
+  - write
+  - edit
+  - grep
+  - glob
 mutating: true
 brain_first: exempt
+when_to_use: >-
+  Use when the user asks: "improve this skill", "skill won't trigger",
+  "audit skill quality", "fix skill underperformance", "make a skill benchmark",
+  "retire old skill", or "skill produces shallow output".
 ---
 
 # skill-forge
@@ -60,10 +78,15 @@ Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory
 
 ## Verification
 
-- [ ] `wc -w SKILL.md` ≤ 500 (this file is the gate)
+- [ ] `wc -w SKILL.md` ≤ 1000 (this file is the gate — heavy reference lives in `docs/SKILL_REFERENCE.md`, not here)
 - [ ] Each phase prints its verb on stdout
 - [ ] Bundled-skill runs emit `proposed.md`, not `SKILL.md`
 - [ ] Triple-judge summary lists all three judges with scores
+- [ ] `validate_skill_frontmatter()` returns `[]` (no principle violations in this SKILL.md) — see PRINCIPLES.md § 1
+
+The v0 gate was 500 words; v2's 8-frontmatter-field layout + 4 additional body sections (Output Format / Anti-Patterns / When it fails / Tools Used, now in `docs/SKILL_REFERENCE.md`) lifts the natural size to ~800-1000. The 1000-word gate is the new floor; below the floor the SKILL.md is probably missing reference material, above it is probably duplicating `docs/SKILL_REFERENCE.md`.
+
+> Output Format, Anti-Patterns, When it fails, and Tools Used live in [`docs/SKILL_REFERENCE.md`](SKILL_REFERENCE.md) per the progressive-disclosure principle (PRINCIPLES.md § 3). They are loaded only when troubleshooting, not on every invocation.
 
 ## v2 specifics (post v0.2.0)
 
