@@ -2,7 +2,22 @@
 
 This document is the source-of-truth record of how `skill-forge` is deployed on the local machine so that **cc-haha** (and any other Claude variant that scans `~/.claude/skills/`) can call it. If the junction or the installed package ever drifts, this file is what you re-apply from.
 
-Last updated: **2026-10-15** (after the v0.2.0-rc1 push to GitHub).
+Last updated: **2026-10-15** (v0.2.0-rc1 push to GitHub + cc-haha marketplace-link fix).
+
+---
+
+## 0. Two-junction layout (v0.2.0)
+
+`skill-forge` v2 lives in **two** parallel locations on disk, both pointing at the same v2 source:
+
+| Path | What it is | Why |
+|---|---|---|
+| `C:\Users\Duanyi\.claude\skills\skill-forge\` (junction → `F:\soft\00selfmade\skill-optimizer\skill-forge\`) | User-scope skill — shown in cc-haha settings panel as a "技能" card | Discovered by filesystem enumeration of `~/.claude/skills/` |
+| `C:\Users\Duanyi\.claude\plugins\marketplaces\gbrain\plugin\skills\skill-forge\` (junction → same target) | Marketplace-link skill — registered as `gbrain:skill-forge` | **Required for `@skill-forge` invocation in cc-haha** |
+
+**Why both**: cc-haha's settings panel reads `~/.claude/skills/` (filesystem) but its `@-invoke` resolver reads the plugin registry (`enabledPlugins` + the marketplace plugin's `plugin/skills/`). The user-scope junction alone is enough to be *listed* in the settings but not enough to be *invoked* via `@skill-forge`. The marketplace-link junction closes the gap by making the skill appear under the already-enabled `gbrain` plugin.
+
+Both junctions point to the same `F:\soft\00selfmade\skill-optimizer\skill-forge\` source, so editing the source updates both views simultaneously. The v0 `skill-optimizer` at the marketplace path is untouched (mtime `Oct 14 07:58`, unchanged from before this fix).
 
 ---
 
@@ -21,12 +36,17 @@ Last updated: **2026-10-15** (after the v0.2.0-rc1 push to GitHub).
 ## 2. How the deployment was made
 
 ```powershell
-# 1. Create the junction (PowerShell, no admin needed for /J junction):
+# 1. User-scope junction (settings panel):
 New-Item -ItemType Junction `
     -Path 'C:\Users\Duanyi\.claude\skills\skill-forge' `
     -Target 'F:\soft\00selfmade\skill-optimizer\skill-forge'
 
-# 2. Install the package + dependencies:
+# 2. Marketplace-link junction (cc-haha @-invoke):
+New-Item -ItemType Junction `
+    -Path 'C:\Users\Duanyi\.claude\plugins\marketplaces\gbrain\plugin\skills\skill-forge' `
+    -Target 'C:\Users\Duanyi\.claude\skills\skill-forge'
+
+# 3. Install the package + dependencies:
 cd F:\soft\00selfmade\skill-optimizer\skill-forge
 C:\Python314\python.exe -m pip install -e .
 # → installs skill-forge-0.1.0, pyyaml>=6.0, pytest>=8.0
