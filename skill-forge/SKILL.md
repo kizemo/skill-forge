@@ -34,13 +34,13 @@ the result with a three-judge gate before letting any change ship.
 | Phase | Verb | What happens |
 |---|---|---|
 | 0 | audit | Static scan the target SKILL.md → root cause: prompt / routing / contract / missing / other |
-| 1 | scope | You pick: create / improve / audit / retire |
-| 2 | bootstrap | Generate ~15 benchmark tasks with rule + rubric judges |
-| 3 | run | `gbrain skillopt X --bootstrap-reviewed` (or skill-creator for create) |
-| 4 | verify | Deterministic trace + LLM rubric + spot check; any regression refuses |
-| 5 | materialize | best.md / proposed.md / run-report.md |
+| 1 | scope | You pick: create / improve / audit-only / retire |
+| 2 | bootstrap | Generate 15 benchmark rows by default (RULING-7) — override with `--held-out N`; refuses if `N < 5` — plus sentinel |
+| 3 | forward | `gbrain skillopt X --bootstrap-reviewed` (or `skill-creator/init_skill.py` shim for create) |
+| 4 | verify | Deterministic trace + LLM rubric + spot check; absent rubric ≠ failure (RULING-1); any regression refuses |
+| 5 | materialize | `audit-report.md` (always) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); bundled `SKILL.md` is never overwritten |
 
-Default behavior: `--dry-run`. Bundled gbrain skills go to `proposed.md` only.
+Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory. Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
 
 ## Common Rationalizations
 
@@ -64,3 +64,12 @@ Default behavior: `--dry-run`. Bundled gbrain skills go to `proposed.md` only.
 - [ ] Each phase prints its verb on stdout
 - [ ] Bundled-skill runs emit `proposed.md`, not `SKILL.md`
 - [ ] Triple-judge summary lists all three judges with scores
+
+## v2 specifics (post v0.2.0)
+
+- **Exit codes** — `0` accept · `2` refuse · `3` race (a bundled skill's `SKILL.md` SHA drifted between audit and materialize). Distinct codes for distinct failure modes so CI can route them differently.
+- **Race check** — `.skill-forge-baseline.json` records the `SKILL.md` SHA from the last successful run. A drift on a bundled install refuses with exit `3`; a non-bundled drift warns and proceeds. `SKILL.md` is untouched either way.
+- **Bundled-skill safety** — `is_bundled(skill_dir)` reads `~/.gbrain/install.json` and short-circuits the route phase for marketplace installs. **Fails open** if `install.json` is missing — copy the skill to a scratch dir before iterating.
+- **`--held-out N`** — overrides the default 15-row benchmark; refuses with exit `2` when `N < 5` (gbrain hard-refuses <5 internally).
+- **Triple-judge details** — `description` must be a YAML block scalar (RULING-5); YAML-list `description` refuses instead of raising; `baseline` is consumed in the rubric prompt so a real LLM call can compare candidate vs. baseline; rubric-skipped is invisible in `verdict.llm_score` — branch on `llm_call is None` at the call site, never on the verdict (RULING-8).
+- **Skip optional deps gracefully** — `pip install -e .` pulls `pyyaml`; without it the frontmatter loader raises `ImportError` instead of returning a partial result. The rest of the pipeline degrades to `diagnose-only` (no `gbrain` on PATH) or refuses on missing frontmatter (no `pyyaml`).
