@@ -76,6 +76,71 @@ _NAME_KEBAB = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _DESCRIPTION_MAX = 1024  # character budget for frontmatter description
 _DESCRIPTION_WORD_CAP = 50  # Perplexity routing-trigger principle: ≤ 50 words
 _DESCRIPTION_PREFIXES = ("Use when", "Load when")  # valid routing-trigger starts
+_GOTCHA_SECTION_RE = re.compile(
+    r"^##\s+.*(?:[Gg]otcha|[Pp]itfall|[Ff]lag|[Pp]attern|[Ff]ail|[Rr]ationaliz)",
+    re.MULTILINE,
+)
+_BODY_LINE_THRESHOLD = 150  # bodies longer than this should have references/
+
+
+def validate_skill_body(path: Path, fm: Any) -> list[str]:
+    """Return a list of human-readable warnings about the SKILL.md body.
+
+    Principles enforced (see docs/PRINCIPLES.md § 2):
+      2.x — body contains a gotcha-style section (## Common Rationalizations /
+            ## Red Flags / ## Anti-Patterns / ## Pitfalls / ## When it fails)
+      2.y — body over 150 lines should have a references/ or assets/
+            directory in the same skill folder (Perplexity: skill is a
+            folder, not a file — heavy content should not all live in
+            SKILL.md).
+
+    The function never raises. A malformed SKILL.md (missing closer)
+    produces a single warning instead of crashing, matching the
+    validate_skill_frontmatter() contract ("suboptimal, not broken").
+
+    `fm` is currently unused — reserved for future checks that correlate
+    body content with frontmatter claims. Pass it for symmetry with
+    validate_skill_frontmatter().
+    """
+    del fm  # currently unused; reserved for future body↔frontmatter cross-checks
+    warnings: list[str] = []
+
+    try:
+        body = body_of(path)
+    except FrontmatterError as e:
+        warnings.append(f"body: cannot read body from {path.name}: {e}")
+        return warnings
+
+    # Gotcha-style section check (PRINCIPLES.md § 2.4–2.7 + Perplexity
+    # "gotchas are highest-value content"). Match against ## headers in the
+    # body — the regex covers Common Rationalizations, Red Flags,
+    # Anti-Patterns, Pitfalls, When it fails, and any ## section whose
+    # title contains a "gotcha-like" word.
+    if not _GOTCHA_SECTION_RE.search(body):
+        warnings.append(
+            "body: no gotcha-style section found "
+            "(Perplexity: gotchas are highest-value); "
+            "consider adding ## Common Rationalizations / "
+            "## Red Flags / ## Anti-Patterns / ## Pitfalls"
+        )
+
+    # References/ or assets/ presence for non-trivial bodies (Perplexity:
+    # skill is a folder, not a file). The threshold aligns with
+    # PRINCIPLES.md § 3: "body under ~150 lines is the sweet spot;
+    # anything longer belongs in references/".
+    line_count = len(body.splitlines())
+    if line_count > _BODY_LINE_THRESHOLD:
+        skill_dir = path.parent
+        has_refs = (skill_dir / "references").is_dir()
+        has_assets = (skill_dir / "assets").is_dir()
+        if not (has_refs or has_assets):
+            warnings.append(
+                f"body: {line_count} lines (> {_BODY_LINE_THRESHOLD}); "
+                f"consider moving heavy content to references/ or assets/ "
+                f"(Perplexity: skill is a folder, not a file)"
+            )
+
+    return warnings
 
 
 def validate_skill_frontmatter(

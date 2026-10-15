@@ -1,6 +1,9 @@
 import pytest
 from pathlib import Path
-from scripts._lib.frontmatter import load, FrontmatterError, body_of, validate_skill_frontmatter
+from scripts._lib.frontmatter import (
+    load, FrontmatterError, body_of,
+    validate_skill_frontmatter, validate_skill_body,
+)
 
 
 def test_load_and_body_of_select_the_same_closer_on_inline_dashes(tmp_path):
@@ -384,6 +387,117 @@ def test_validate_no_dir_warning_when_dir_name_matches(tmp_path):
     skill_dir.mkdir()
     warnings = validate_skill_frontmatter(fm, skill_dir=skill_dir)
     assert not any("dir" in w for w in warnings), warnings
+
+
+# ---------------------------------------------------------------------------
+# validate_skill_body — gap 2 (2026-10-15 Perplexity audit):
+#   (a) presence of a gotcha-style section in the body
+#   (b) warn when references/ or assets/ is missing for non-trivial bodies
+# Both checks read the body via body_of() and never raise.
+# ---------------------------------------------------------------------------
+
+def test_validate_body_warns_when_no_gotcha_section(tmp_path):
+    """A body with no gotcha-style section (## Common Rationalizations /
+    ## Red Flags / ## Anti-Patterns / ## Pitfalls / ## Failure modes / etc.)
+    emits a warning. Perplexity: gotchas are the highest-value content."""
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        "---\nname: x\n---\n# body\n\nSome plain content with no gotchas.\n",
+        encoding="utf-8",
+    )
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert any("gotcha" in w.lower() for w in warnings), warnings
+
+
+def test_validate_body_accepts_common_rationalizations_section(tmp_path):
+    """'## Common Rationalizations' is one of the accepted gotcha-section
+    patterns (matches the 'rationaliz' branch of the regex)."""
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        "---\nname: x\n---\n# body\n\n## Common Rationalizations\n\n| a | b |\n",
+        encoding="utf-8",
+    )
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert not any("gotcha" in w.lower() for w in warnings), warnings
+
+
+def test_validate_body_accepts_red_flags_section(tmp_path):
+    """'## Red Flags' is another accepted pattern (matches the convention)."""
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        "---\nname: x\n---\n# body\n\n## Red Flags\n\n- one\n",
+        encoding="utf-8",
+    )
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert not any("gotcha" in w.lower() for w in warnings), warnings
+
+
+def test_validate_body_warns_when_long_body_lacks_references_dir(tmp_path):
+    """A body over 150 lines without a references/ or assets/ directory in
+    the parent skill_dir emits a warning. Perplexity: heavy content should
+    live in references/, not inline in SKILL.md."""
+    long_body = "\n".join(f"line {i}" for i in range(200))
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        f"---\nname: x\n---\n# body\n\n{long_body}\n",
+        encoding="utf-8",
+    )
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert any("references" in w.lower() or "assets" in w.lower()
+               for w in warnings), warnings
+
+
+def test_validate_body_no_warning_when_references_dir_present(tmp_path):
+    """A long body WITH a references/ directory: no overflow warning."""
+    long_body = "\n".join(f"line {i}" for i in range(200))
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        f"---\nname: x\n---\n# body\n\n{long_body}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "references").mkdir()
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert not any("references" in w.lower() or "assets" in w.lower()
+                   for w in warnings), warnings
+
+
+def test_validate_body_no_warning_when_assets_dir_present(tmp_path):
+    """Long body WITH an assets/ directory: no overflow warning (assets/
+    is an accepted alternative to references/)."""
+    long_body = "\n".join(f"line {i}" for i in range(200))
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        f"---\nname: x\n---\n# body\n\n{long_body}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "assets").mkdir()
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert not any("references" in w.lower() or "assets" in w.lower()
+                   for w in warnings), warnings
+
+
+def test_validate_body_skips_overflow_check_for_short_body(tmp_path):
+    """Short bodies (<= 150 lines) skip the overflow check: not every
+    small skill needs a references/ directory."""
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        "---\nname: x\n---\n# body\n\nshort content\n",
+        encoding="utf-8",
+    )
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert not any("references" in w.lower() or "assets" in w.lower()
+                   for w in warnings), warnings
+
+
+def test_validate_body_never_raises_on_missing_fence(tmp_path):
+    """A malformed SKILL.md (no closing fence) must not raise — the body
+    check degrades to a single warning, matching the frontmatter validator's
+    'never raises' contract."""
+    p = tmp_path / "SKILL.md"
+    p.write_text("---\nname: x\nno closer\n", encoding="utf-8")
+    warnings = validate_skill_body(p, {"name": "x"})
+    assert isinstance(warnings, list)
+    assert len(warnings) >= 1
 
 
 def test_validate_never_raises_on_garbage():
