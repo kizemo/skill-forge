@@ -15,15 +15,72 @@ from scripts.router import RouteResult, route
 
 PHASES = ("audit", "scope", "bootstrap", "forward", "verify", "materialize")
 
+# Per Perplexity's gotcha flywheel: when the audit returns a non-trivial
+# root_cause, the audit-report.md should suggest 1-2 gotchas the author
+# should add to the target skill's Red Flags / Anti-Patterns. Without
+# this, the flywheel has no fuel — gotchas stay frozen at v0.2.0 instead
+# of growing from observed failures.
+#
+# The mapping is deliberately small and curated. Each suggestion must be:
+# (a) actionable — the author can copy it into Red Flags as a bullet
+# (b) root-cause specific — it should help with THIS root_cause, not be
+#     generic "always test your skill"
+# (c) rooted in Perplexity or skill-forge's own principles, not invented
+#
+# `missing` (no SKILL.md → create scope) and `other` (FrontmatterError /
+# no branch matched → audit-only scope) deliberately have no suggestions:
+# the verdict is non-actionable at the gotcha level.
+_SUGGESTED_GOTCHAS: dict[str, tuple[str, ...]] = {
+    "prompt": (
+        "Body under 60 chars gives the agent nothing to anchor on. "
+        "Add an explicit Phases section and a Common Rationalizations table.",
+        "Thin bodies are usually a sign the SKILL.md was authored from the "
+        "audit output, not from the position statement. Re-author from the "
+        "top — 'What this is' first, gotchas last.",
+    ),
+    "routing": (
+        "Description does not start with 'Use when …' or 'Load when …'; "
+        "the resolver's short-circuit fails and the skill is matched by "
+        "similarity, not by routing.",
+        "Add 3+ concrete trigger phrases to the `triggers:` list (5-7 is the "
+        "sweet spot). The validator warns on < 3 and on descriptions > 50 words.",
+    ),
+    "contract": (
+        "`scripts/*.py` contains the substring `does_not_exist` — an "
+        "unresolvable import. The skill cannot run; the agent will throw "
+        "before producing output.",
+        "Audit bundled scripts for missing imports before shipping. Add an "
+        "ImportError pattern to the skill's Anti-Patterns section so this "
+        "fails loudly next time.",
+    ),
+    # 'missing' and 'other' deliberately omitted — non-actionable verdicts.
+}
+
+
+def _suggested_gotchas(root_cause: str) -> list[str]:
+    """Return the suggested gotchas for `root_cause`, or [] if the verdict
+    is non-actionable (missing / other). Pure helper, easy to unit-test."""
+    return list(_SUGGESTED_GOTCHAS.get(root_cause, ()))
+
+
 def _emit(phase: int, name: str, msg: str) -> None:
     print(f"[phase {phase}] {name}: {msg}", flush=True)
 
+
 def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bool = False, candidate: Path | None = None) -> Path:
     out = skill_dir / "audit-report.md"
-    out.write_text(
-        f"# skill-forge audit\n\nroot_cause: {root_cause}\nverdict: {'accept' if verdict else 'refuse'}\n",
-        encoding="utf-8",
+    gotchas = _suggested_gotchas(root_cause)
+    body = (
+        f"# skill-forge audit\n\n"
+        f"root_cause: {root_cause}\n"
+        f"verdict: {'accept' if verdict else 'refuse'}\n"
     )
+    if gotchas:
+        # Markdown bullet list — each line is directly copy-pasteable into
+        # the target skill's Red Flags / Anti-Patterns section.
+        bullets = "\n".join(f"- {g}" for g in gotchas)
+        body += f"\n## Suggested gotchas\n\n{bullets}\n"
+    out.write_text(body, encoding="utf-8")
     if verdict and not bundled and candidate is not None and candidate.exists():
         # v2-T5: for a non-bundled skill on accept, the candidate SKILL.md
         # content is written to best.md verbatim. SKILL.md is NOT overwritten

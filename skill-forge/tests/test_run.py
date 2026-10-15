@@ -322,3 +322,110 @@ def test_run_warns_when_both_benchmark_and_held_out_are_set(tmp_path, monkeypatc
     err = capsys.readouterr().err
     assert "[WARN]" in err
     assert "--held-out" in err and "--benchmark" in err
+
+
+# --- gap 7 (2026-10-15 Perplexity audit): audit-report.md "Suggested gotchas" ---
+
+def test_materialize_includes_suggested_gotchas_for_routing_root_cause(tmp_path):
+    """Per Perplexity's gotcha flywheel: when the verdict is non-trivial
+    (non-`other`, non-`missing`), the audit-report.md should suggest 1-2
+    gotchas the author should add to the target skill's Red Flags /
+    Anti-Patterns. Without this, the flywheel has no fuel.
+
+    For root_cause='routing' (description does not start with 'Use when'),
+    the suggestions should mention description / trigger topics."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    _materialize(skill, verdict=False, root_cause="routing")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "## Suggested gotchas" in report
+    # At least one gotcha should reference description or trigger topics
+    # (since this is the routing root cause).
+    assert "description" in report.lower() or "trigger" in report.lower()
+
+
+def test_materialize_includes_suggested_gotchas_for_prompt_root_cause(tmp_path):
+    """For root_cause='prompt' (body too short), suggestions should
+    reference body length / position statement topics."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    _materialize(skill, verdict=False, root_cause="prompt")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "## Suggested gotchas" in report
+    assert "body" in report.lower() or "position" in report.lower()
+
+
+def test_materialize_includes_suggested_gotchas_for_contract_root_cause(tmp_path):
+    """For root_cause='contract' (unresolvable import), suggestions should
+    reference scripts / import topics."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    _materialize(skill, verdict=False, root_cause="contract")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "## Suggested gotchas" in report
+    assert "script" in report.lower() or "import" in report.lower()
+
+
+def test_materialize_omits_suggested_gotchas_for_missing_root_cause(tmp_path):
+    """For root_cause='missing' (SKILL.md absent), there is nothing to
+    add gotchas to — the section is omitted. The audit-report.md still
+    has root_cause and verdict, just no gotcha suggestions."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    _materialize(skill, verdict=False, root_cause="missing")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "root_cause: missing" in report
+    assert "## Suggested gotchas" not in report
+
+
+def test_materialize_omits_suggested_gotchas_for_other_root_cause(tmp_path):
+    """For root_cause='other' (FrontmatterError or no branch matched),
+    the verdict is non-actionable — no gotcha suggestions."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    _materialize(skill, verdict=False, root_cause="other")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "root_cause: other" in report
+    assert "## Suggested gotchas" not in report
+
+
+def test_materialize_suggested_gotchas_are_on_distinct_lines(tmp_path):
+    """The gotcha suggestions are 1-2 items, each on its own line as a
+    Markdown bullet. A reader should be able to copy them as-is into
+    Red Flags / Anti-Patterns."""
+    from scripts.run import _materialize
+    skill = tmp_path / "x"
+    skill.mkdir()
+    _materialize(skill, verdict=False, root_cause="routing")
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    # Find the section and count bullets in it.
+    section_start = report.index("## Suggested gotchas")
+    section = report[section_start:]
+    bullets = [line for line in section.splitlines() if line.startswith("- ")]
+    assert 1 <= len(bullets) <= 3  # 1-2 suggestions per spec; allow 3 for flexibility
+
+
+def test_run_end_to_end_emits_suggested_gotchas_for_routing(tmp_path, monkeypatch):
+    """End-to-end: a routing root_cause (description without 'Use when'
+    prefix → audit() classifies as routing) emits the Suggested gotchas
+    section in audit-report.md."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    # Note: description does NOT start with 'Use when' → audit returns routing
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: A description without the prefix.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    main(["--skill", str(skill), "--scope", "audit-only"])
+    report = (skill / "audit-report.md").read_text(encoding="utf-8")
+    assert "## Suggested gotchas" in report
