@@ -3,6 +3,38 @@ from pathlib import Path
 from scripts._lib.frontmatter import load, FrontmatterError, body_of
 
 
+def test_load_and_body_of_select_the_same_closer_on_inline_dashes(tmp_path):
+    """Post-v2 hardening (v2-T1 M4): pin the literal text of RULING-3 —
+    that load() and body_of() select the *same* closer on the same file.
+    A future edit that makes body_of() use a different rule would be
+    caught here, not only via the indirect audit reproducer."""
+    p = tmp_path / "SKILL.md"
+    p.write_text(
+        "---\n"
+        "name: x\n"
+        "description: y\n"
+        "---\n"
+        "# body one\n"
+        "\n"
+        "---\n"
+        "\n"
+        "more body (this `---` is body content, not a fence)\n",
+        encoding="utf-8",
+    )
+    fm = load(p)
+    assert fm == {"name": "x", "description": "y"}
+    body = body_of(p)
+    # Frontmatter keys must NOT be in body.
+    assert "name: x" not in body
+    assert "description: y" not in body
+    # Both body segments after the closer must be present.
+    assert "body one" in body
+    assert "more body" in body
+    # The body-level horizontal rule must be present (proves the closer
+    # was the FIRST `---` and not the second).
+    assert "---" in body
+
+
 def test_load_parses_valid_frontmatter(tmp_path):
     p = tmp_path / "SKILL.md"
     p.write_text("---\nname: x\ndescription: y\n---\n# body\n", encoding="utf-8")
