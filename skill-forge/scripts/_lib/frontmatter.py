@@ -10,14 +10,19 @@ import yaml
 class FrontmatterError(Exception):
     """Raised when frontmatter is missing, malformed, or absent."""
 
-def _find_closer(lines: list[str], path: Path | None = None) -> int:
+def _find_closer(lines: list[str], path: Path) -> int:
     """Return the 1-based line index of the FIRST `---` after line 1 (RULING-3).
 
     Shared by load() and body_of() so the two parsers cannot drift apart: any
     change to the fence rule lands in exactly one place. Raises
     FrontmatterError when line 1 is not a `---` fence or when no closer exists.
+    `path` is required so the error message always carries the source-file
+    prefix (consumed by `AuditReport.evidence` via the frontmatter-error
+    branch). v2-T1 originally accepted `path: Path | None = None`; making it
+    required removes a dead branch whose only effect was to silently drop the
+    error prefix.
     """
-    prefix = f"{path}: " if path is not None else ""
+    prefix = f"{path}: "
     if not lines or lines[0].strip() != "---":
         raise FrontmatterError(f"{prefix}missing opening '---' fence on line 1")
     for i, line in enumerate(lines[1:], start=2):
