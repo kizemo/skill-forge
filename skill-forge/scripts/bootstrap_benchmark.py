@@ -8,7 +8,6 @@ TEMPLATES = {
     "routing": ["When is this skill meant to trigger?", "What does the description promise that the body does not deliver?", "Name two user prompts that should NOT trigger this skill."],
     "prompt":  ["Explain the skill's process in one paragraph.", "What is the strongest rule a reader of this skill must follow?", "If the skill's rules conflict, which wins?"],
     "contract": ["Which scripts does this skill depend on that don't exist yet?", "List the tool surface the skill assumes.", "Where does the skill document its error contract?"],
-    "env": ["What local env does this skill require?", "How does the skill detect a missing prerequisite?", "What changes when the env is different?"],
     "missing": ["What should this skill do, in one sentence?", "Describe 3 user prompts that should trigger it.", "What command runs first?"],
     "other":   ["Summarize what this skill does.", "Why would someone invoke it?", "What's the next thing the skill does after that?"],
 }

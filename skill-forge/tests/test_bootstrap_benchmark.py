@@ -28,3 +28,12 @@ def test_bootstrap_adapts_tasks_to_root_cause(tmp_skill_tree: Path):
     payload = [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")]
     # Routing root cause → at least one task about description / triggers
     assert any("description" in row["task"].lower() or "trigger" in row["task"].lower() for row in payload)
+
+def test_bootstrap_templates_does_not_include_env_bucket():
+    """RULING-10 (v2-T6, Option A): the dead 'env' bucket is dropped from
+    TEMPLATES. audit() can never produce root_cause='env' (RULING-6 contract),
+    so a bucket for it is unreachable dead code that misleads readers."""
+    from scripts.bootstrap_benchmark import TEMPLATES
+    assert "env" not in TEMPLATES
+    # And the 5 expected buckets are present.
+    assert set(TEMPLATES.keys()) == {"routing", "prompt", "contract", "missing", "other"}

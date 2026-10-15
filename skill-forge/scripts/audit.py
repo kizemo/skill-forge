@@ -4,7 +4,12 @@ from pathlib import Path
 from typing import Literal
 from scripts._lib.frontmatter import load, body_of, FrontmatterError
 
-RootCause = Literal["prompt", "routing", "contract", "env", "missing", "other"]
+# v2-T6 (RULING-10, Option A): "env" dropped from RootCause. v1 declared it
+# but no classifier branch in audit() ever returned it, so the value was
+# unreachable — a contract violation by construction. Any code reading
+# `report.root_cause == "env"` was reading a value audit() can never
+# produce. Strict narrowing; no v1 caller was relying on the value.
+RootCause = Literal["prompt", "routing", "contract", "missing", "other"]
 Scope = Literal["create", "improve", "audit-only", "retire"]
 
 @dataclass

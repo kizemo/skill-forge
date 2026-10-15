@@ -77,3 +77,15 @@ def test_audit_prompt_branch_uses_correct_body_when_yaml_value_contains_dashes(t
     fake = tmp_path / "fake-skill"
     report = audit(fake)
     assert report.root_cause == "prompt"
+
+def test_audit_root_cause_literal_does_not_include_env():
+    """RULING-10 (v2-T6, Option A): the dead 'env' RootCause member is
+    dropped. The Literal in scripts.audit should no longer contain 'env'."""
+    from typing import get_args
+    from scripts.audit import RootCause
+    args = get_args(RootCause)
+    assert "env" not in args, (
+        f"RootCause Literal must not contain 'env' (RULING-10, Option A); got {args!r}"
+    )
+    # And the 5 expected members are present.
+    assert set(args) == {"prompt", "routing", "contract", "missing", "other"}
