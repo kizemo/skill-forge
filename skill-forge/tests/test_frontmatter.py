@@ -282,6 +282,110 @@ def test_validate_warns_on_non_semver_version():
     assert any("semver" in w for w in validate_skill_frontmatter(fm))
 
 
+# ---------------------------------------------------------------------------
+# validate_skill_frontmatter — gap 1 (2026-10-15 Perplexity audit):
+#   (a) description starts with "Use when" or "Load when"
+#   (b) description ≤ 50 words (separate from the 1024-char cap)
+#   (c) skill_dir.name matches fm["name"]
+# All three return warnings; the function never raises.
+# ---------------------------------------------------------------------------
+
+def test_validate_warns_on_description_without_use_when_prefix():
+    """Per Perplexity: a description should be a routing phrase, not a self-
+    intro. The accepted prefixes are 'Use when …' (skill-forge's convention)
+    or 'Load when …' (Perplexity's literal). Anything else → warning."""
+    fm = {
+        "name": "skill-x",
+        "description": "Improve this skill by auditing its body.",  # no prefix
+        "triggers": ["a", "b", "c"],
+    }
+    warnings = validate_skill_frontmatter(fm)
+    assert any("`description`" in w and ("Use when" in w or "Load when" in w)
+               for w in warnings), warnings
+
+
+def test_validate_warns_on_load_when_prefix_too():
+    """The literal 'Load when …' prefix (Perplexity's phrasing) is also valid."""
+    fm = {
+        "name": "skill-x",
+        "description": "Load when the user asks to improve a skill.",
+        "triggers": ["a", "b", "c"],
+    }
+    assert not any("`description`" in w and ("Use when" in w or "Load when" in w)
+                   for w in validate_skill_frontmatter(fm))
+
+
+def test_validate_warns_on_description_over_50_words():
+    """Per Perplexity: keep description ≤ 50 words. 51 words → warning,
+    even if the 1024-char cap would have accepted it (51 short words is
+    well under 1024 chars; the two caps are independent)."""
+    fm = {
+        "name": "skill-x",
+        "description": "Use when " + ("word " * 51),  # 52 words total, well under 1024 chars
+        "triggers": ["a", "b", "c"],
+    }
+    warnings = validate_skill_frontmatter(fm)
+    assert any("`description`" in w and "50" in w and "words" in w
+               for w in warnings), warnings
+
+
+def test_validate_accepts_description_at_exactly_50_words():
+    """50 words is the cap, not over — no word-count warning. (We still
+    count the leading 'Use when' as 2 words, so this fixture has 50.)"""
+    words = "Use when " + " ".join(f"w{i}" for i in range(48))  # 2 + 48 = 50
+    assert len(words.split()) == 50
+    fm = {
+        "name": "skill-x",
+        "description": words,
+        "triggers": ["a", "b", "c"],
+    }
+    warnings = validate_skill_frontmatter(fm)
+    assert not any("50 words" in w for w in warnings), warnings
+
+
+def test_validate_warns_when_dir_name_mismatches_frontmatter_name(tmp_path):
+    """Per Perplexity: skill dir name == frontmatter name. When the caller
+    passes skill_dir (optional kwarg) and dir.name != fm["name"], warn."""
+    fm = {
+        "name": "actual-skill-name",
+        "description": "Use when x.",
+        "triggers": ["a", "b", "c"],
+    }
+    # tmp_path is a different name.
+    skill_dir = tmp_path / "different-name"
+    skill_dir.mkdir()
+    warnings = validate_skill_frontmatter(fm, skill_dir=skill_dir)
+    assert any("dir" in w and "actual-skill-name" in w and "different-name" in w
+               for w in warnings), warnings
+
+
+def test_validate_skips_dir_check_when_skill_dir_omitted():
+    """Default (no skill_dir): the dir-name check is silently skipped so
+    existing callers that only pass a dict keep working unchanged."""
+    fm = {
+        "name": "anything",
+        "description": "Use when x.",
+        "triggers": ["a", "b", "c"],
+    }
+    warnings = validate_skill_frontmatter(fm)
+    assert not any("dir" in w for w in warnings), warnings
+
+
+def test_validate_no_dir_warning_when_dir_name_matches(tmp_path):
+    """When the caller passes skill_dir and dir.name == fm["name"]: no
+    dir-mismatch warning. (The dir-name match is a soft convention; no
+    warning is emitted on success.)"""
+    fm = {
+        "name": "matching-name",
+        "description": "Use when x.",
+        "triggers": ["a", "b", "c"],
+    }
+    skill_dir = tmp_path / "matching-name"
+    skill_dir.mkdir()
+    warnings = validate_skill_frontmatter(fm, skill_dir=skill_dir)
+    assert not any("dir" in w for w in warnings), warnings
+
+
 def test_validate_never_raises_on_garbage():
     """A frontmatter-shaped object that's not a dict (or contains non-string
     values) must not raise — it must return a warnings list. The contract

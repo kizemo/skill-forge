@@ -74,17 +74,26 @@ def body_of(path: Path) -> str:
 
 _NAME_KEBAB = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 _DESCRIPTION_MAX = 1024  # character budget for frontmatter description
+_DESCRIPTION_WORD_CAP = 50  # Perplexity routing-trigger principle: ≤ 50 words
+_DESCRIPTION_PREFIXES = ("Use when", "Load when")  # valid routing-trigger starts
 
 
-def validate_skill_frontmatter(fm: Any) -> list[str]:
+def validate_skill_frontmatter(
+    fm: Any, skill_dir: Path | None = None
+) -> list[str]:
     """Return a list of human-readable warnings about frontmatter fields
     that violate skill-writing principles. Empty list = no problems found.
 
     Principles enforced (see docs/PRINCIPLES.md § 1):
       1.1 — description: present, ≤ 1024 chars, leading-text-1-sentence
+      1.1b — description: starts with a routing-trigger prefix
+            ("Use when" or "Load when") and ≤ 50 words
       1.3 — triggers: non-empty list with ≥ 3 concrete phrases
       1.4 — mutating: explicit boolean
       1.5 — name: lowercase kebab-case
+      1.5b — name: matches the parent directory name (only checked when
+            the caller passes skill_dir; skipped silently otherwise so
+            existing callers that only pass a dict keep working unchanged)
       1.6 — brain_first: declared (exempt or required; the marketplace
             convention; "absent" emits a warning)
       1.7 — when_to_use: declared (one-line summary)
@@ -109,12 +118,37 @@ def validate_skill_frontmatter(fm: Any) -> list[str]:
     elif not _NAME_KEBAB.match(name):
         warnings.append(f"frontmatter: `name` is {name!r}, expected lowercase kebab-case (e.g. 'my-skill')")
 
-    # 1.1 description: present, ≤ 1024 chars
+    # 1.5b name: matches the parent directory name (Perplexity principle:
+    # "skill is a folder, not a file"). Only checked when the caller passes
+    # skill_dir — existing callers that only pass a dict keep working.
+    if isinstance(name, str) and name and skill_dir is not None:
+        dir_name = skill_dir.name
+        if dir_name and dir_name != name:
+            warnings.append(
+                f"frontmatter: skill dir is {dir_name!r} but frontmatter "
+                f"`name` is {name!r} (Perplexity principle: dir.name == fm.name)"
+            )
+
+    # 1.1 description: present, ≤ 1024 chars, starts with a routing-trigger
+    #    prefix ("Use when" / "Load when"), ≤ 50 words
     desc = fm.get("description")
     if not isinstance(desc, str) or not desc.strip():
         warnings.append("frontmatter: `description` is missing or empty (skill will not be matched by description-based resolver)")
-    elif len(desc) > _DESCRIPTION_MAX:
-        warnings.append(f"frontmatter: `description` is {len(desc)} chars, recommended ≤ {_DESCRIPTION_MAX}")
+    else:
+        if len(desc) > _DESCRIPTION_MAX:
+            warnings.append(f"frontmatter: `description` is {len(desc)} chars, recommended ≤ {_DESCRIPTION_MAX}")
+        if not desc.startswith(_DESCRIPTION_PREFIXES):
+            warnings.append(
+                f"frontmatter: `description` should start with a routing-trigger "
+                f"prefix ({', '.join(repr(p) for p in _DESCRIPTION_PREFIXES)}); "
+                f"got {desc[:30]!r}"
+            )
+        word_count = len(desc.split())
+        if word_count > _DESCRIPTION_WORD_CAP:
+            warnings.append(
+                f"frontmatter: `description` is {word_count} words, recommended "
+                f"≤ {_DESCRIPTION_WORD_CAP} (Perplexity routing-trigger principle)"
+            )
 
     # 1.3 triggers: non-empty list with ≥ 3 entries
     triggers = fm.get("triggers")
