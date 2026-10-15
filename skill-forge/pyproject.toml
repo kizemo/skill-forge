@@ -14,3 +14,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["scripts*"]
+
+# RULING-4 (T8): bare `pytest -q` from skill-forge/ must resolve `scripts.*`
+# without `python -m`. pytest's default `prepend` import mode otherwise inserts
+# tests/ ahead of the rootdir and collection fails at import time.
+[tool.pytest.ini_options]
+pythonpath = ["."]
