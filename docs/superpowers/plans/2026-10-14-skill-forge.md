@@ -399,7 +399,7 @@ git commit -m "feat(skill-forge): SKILL.md with rationale/red-flag/verify gates"
 
 **Interfaces:**
 - Consumes: `scripts._lib.frontmatter.load` from Task 1.
-- Produces: `AuditResult` (dataclass), `audit(path: Path) -> AuditReport` where `AuditReport` has fields:
+- Produces: `AuditReport` (dataclass), `audit(path: Path) -> AuditReport` where `AuditReport` has fields:
   - `root_cause: Literal["prompt", "routing", "contract", "env", "missing", "other"]`
   - `confidence: float` in `[0.0, 1.0]`
   - `evidence: list[str]` of quoted snippets that drove the classification

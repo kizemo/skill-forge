@@ -33,7 +33,7 @@ the result with a three-judge gate before letting any change ship.
 
 | Phase | Verb | What happens |
 |---|---|---|
-| 0 | audit | Static scan the target SKILL.md → root cause: prompt / routing / contract / env |
+| 0 | audit | Static scan the target SKILL.md → root cause: prompt / routing / contract / missing / other |
 | 1 | scope | You pick: create / improve / audit / retire |
 | 2 | bootstrap | Generate ~15 benchmark tasks with rule + rubric judges |
 | 3 | run | `gbrain skillopt X --bootstrap-reviewed` (or skill-creator for create) |
