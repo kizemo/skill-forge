@@ -222,3 +222,48 @@ Principles marked "No (structural)" are checked by `audit.py` evidence collectio
 - `docs/DEPLOYMENT.md` — local Claude-skills deployment backup
 - gbrain:skill-creator — the source of the gbrain conformance conventions
 - gbrain:skill-optimizer — the bundled v0 of this skill, kept for back-compat
+
+---
+
+## 10. Gotcha flywheel (maintenance process)
+
+Skills are not write-once documents. The Perplexity article prescribes a flywheel that turns observed failures into higher-value content:
+
+| Symptom | Action |
+|---|---|
+| Agent fails at X | Add a gotcha for X in the target skill's Red Flags / Anti-Patterns |
+| Agent loaded the wrong skill | Tighten the skill's `description`, add negative evals |
+| Agent should have loaded, didn't | Add keywords to `description`, add positive evals |
+| System prompt changed | Check for skill conflicts or duplicates |
+| New skill added | Re-run evals on existing skills (action at a distance) |
+
+skill-forge's contribution to this flywheel is the **audit-report.md "Suggested gotchas" section**: when the audit returns a non-trivial verdict, the materialize step emits 1-2 gotcha suggestions for the target skill's author. Without that feedback loop, the flywheel has no fuel and skill-forge's gotchas become a frozen snapshot instead of a living artifact.
+
+## 11. Action at a distance
+
+Changing one skill's `description` can break another skill's recall. Each `description` occupies the agent's index-token budget (~100 tokens/skill); adding or rewording a description shifts the embedding space and the resolver's short-circuit matching. A skill that worked yesterday may stop matching today because a sibling skill's description grew to claim overlapping intent.
+
+**Mitigations:**
+
+- Keep `description` ≤ 50 words (PRINCIPLES.md § 1.1 + validator check).
+- Avoid trigger phrases that two skills could both claim.
+- When adding a new skill, re-run hero queries on existing skills to detect drift.
+- Track skill inventory (`skills`) in a registry, even if informally.
+
+skill-forge does not enforce MECE at runtime (it operates on one skill at a time). MECE is a **creation-time** concern handled by `gbrain:skill-creator`.
+
+## 12. Token budget (index / load / runtime)
+
+| Tier | Content | Budget | When paid |
+|---|---|---|---|
+| Index | `name` + `description` per skill | ~100 tokens/skill | Every session, every user, always |
+| Load | full `SKILL.md` body | ~5,000 tokens (target) | When the skill is triggered |
+| Runtime | files in `scripts/` `references/` `assets/` | unlimited | Only when the agent actually reads a file |
+
+Consequences for the skill author:
+
+- **Index** is always paid. A vague or duplicate description is a hidden cost on every other skill. Keep `description` terse and unique.
+- **Load** is paid on each trigger. The body should be lean; heavy detail belongs in `references/`.
+- **Runtime** is paid per file read. Large assets (e.g. a 1,945-section code book) are fine as long as the agent only opens them on demand.
+
+skill-forge's own `SKILL.md` is ~700 words; heavy reference lives in `docs/foundry-overview.md` (overview, loaded on first trigger) and `docs/foundry-details.md` (details, loaded only when troubleshooting).
