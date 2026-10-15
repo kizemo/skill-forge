@@ -239,3 +239,66 @@ def test_run_does_not_write_best_md_on_refuse(tmp_path, monkeypatch):
     rc = main(["--skill", str(skill), "--scope", "audit-only"])
     assert rc == 2
     assert not (skill / "best.md").exists()
+
+
+# --- v2-T8: held-out enforcement ---
+
+def test_run_refuses_held_out_below_5(tmp_path, capsys, monkeypatch):
+    """v2-T8: --held-out N with N<5 must exit 2 with a [FATAL] line
+    to stderr. The 6-phase pipeline must NOT be entered (no audit)."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    rc = main(["--skill", str(skill), "--scope", "audit-only", "--held-out", "3"])
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "[FATAL]" in err
+    assert "held-out" in err.lower() or "5" in err
+    # Phase 0 marker (audit) must NOT be in stdout — the short-circuit
+    # means audit() was never called.
+    out = capsys.readouterr().out
+    assert "phase 0" not in out.lower()
+
+
+def test_run_accepts_held_out_at_minimum_5(tmp_path, monkeypatch):
+    """v2-T8: --held-out N with N=5 must proceed normally; bootstrap
+    uses the passed n_tasks value."""
+    import json
+    skill = tmp_path / "x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    rc = main(["--skill", str(skill), "--scope", "audit-only", "--held-out", "5"])
+    # Stub fixture deterministic passes → accept → rc=0.
+    assert rc == 0
+    # The benchmark file should have 5 data rows (plus the sentinel).
+    bench_path = skill / "skillopt-benchmark.jsonl"
+    assert bench_path.exists()
+    payload = [json.loads(line) for line in bench_path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    assert len(payload) == 5
+
+
+def test_run_default_held_out_remains_15(tmp_path, monkeypatch):
+    """v2-T8 regression guard: when --held-out is not passed, the
+    default n_tasks=15 behaviour from v1 is preserved."""
+    import json
+    skill = tmp_path / "x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    rc = main(["--skill", str(skill), "--scope", "audit-only"])
+    assert rc == 0
+    bench_path = skill / "skillopt-benchmark.jsonl"
+    assert bench_path.exists()
+    payload = [json.loads(line) for line in bench_path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    assert len(payload) == 15

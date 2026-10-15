@@ -56,7 +56,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--scope", required=True, choices=["create", "improve", "audit-only", "retire"])
     p.add_argument("--benchmark", type=Path, default=None)
     p.add_argument("--spot-check", type=int, default=0)
+    # v2-T8: held-out task count is threaded into bootstrap_benchmark as
+    # n_tasks. gbrain hard-refuses held-out <5 internally, so the CLI surfaces
+    # the constraint up front instead of generating an unusable benchmark.
+    p.add_argument("--held-out", type=int, default=None,
+                   help="Number of held-out tasks (refuses if <5).")
     args = p.parse_args(argv)
+    # v2-T8: early guard, before the skill_dir existence check and before any
+    # phase runs — the pipeline is never entered for N<5.
+    if args.held_out is not None and args.held_out < 5:
+        print(
+            f"[FATAL] --held-out must be >= 5 (gbrain hard-refuses held-out <5 "
+            f"internally); got {args.held_out}",
+            file=sys.stderr,
+        )
+        return 2  # refuse, per v1's refuse code; race stays 3 (Default Decision #3)
     skill_dir: Path = args.skill
     if not skill_dir.exists():
         print(f"error: {skill_dir} does not exist", file=sys.stderr)
@@ -67,7 +81,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.scope != report.recommend_scope and report.confidence >= 0.85 and report.root_cause != "missing":
         print(f"warning: requested scope '{args.scope}' differs from recommended '{report.recommend_scope}'", file=sys.stderr)
     _emit(1, "scope", f"user chose {args.scope}")
-    bench = args.benchmark or bootstrap_benchmark(skill_dir, report)
+    # v2-T8: --held-out threads n_tasks through to the bootstrap generator;
+    # bootstrap's own n_tasks=15 default is preserved when the flag is absent.
+    n_tasks = args.held_out if args.held_out is not None else 15
+    bench = args.benchmark or bootstrap_benchmark(skill_dir, report, n_tasks=n_tasks)
     _emit(2, "bootstrap", f"benchmark={bench}")
     # RULING-9: route()'s subprocess.run is unguarded (router.py ~L23/L27), so
     # TimeoutExpired / OSError / FileNotFoundError propagate. Wrap the call site and
