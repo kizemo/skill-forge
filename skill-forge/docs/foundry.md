@@ -485,9 +485,19 @@ improvement.
 | `proposed.md` | accept, **bundled** only | yes |
 | `.skill-forge-baseline.json` | accept only | yes |
 
-`SKILL.md` is **never** written by any path. That is the safety-critical
-invariant; `best.md` / `proposed.md` are reviewable artifacts that the user
-merges by hand.
+The **target skill's own** `SKILL.md` is **never overwritten** by any path. That
+is the safety-critical invariant; `best.md` / `proposed.md` are reviewable
+artifacts that the user merges by hand.
+
+**One caveat — a path that *creates* rather than overwrites.** `--scope create`
+with no `gbrain` installed forwards to `skill-creator/scripts/init_skill.py`
+via `_legacy_init_skill.py`. That script writes a template `SKILL.md` at
+`<skill_dir>/<basename-of-skill_dir>/SKILL.md`, i.e. a *new* sibling directory
+— and it refuses (returns `None`, non-zero exit) when that directory already
+exists, so it can never clobber an existing skill. `route()` also
+short-circuits bundled skills **before** the shim is invoked, so the bundled
+install is unreachable from this path. The invariant is therefore "never
+overwritten", not "never written anywhere".
 
 ### What "the caller's working copy" means
 

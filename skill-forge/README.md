@@ -63,11 +63,16 @@ picks up a stray `scripts` namespace package and fails).
 
 ## Safety
 
-Never write a bundled `SKILL.md` — and since v2, skill-forge never writes
-`SKILL.md` at all (see "v2 safety additions" above). Still copy to a scratch
-dir (e.g. `C:\Temp\e2e-target\…`) and mutate the copy: the `is_bundled()`
-guard depends on `~/.gbrain/install.json` existing, which it does not on every
-host. See `docs/foundry.md` § 6.
+Never write a bundled `SKILL.md` — and since v2, skill-forge never
+**overwrites** the target skill's own `SKILL.md` (see "v2 safety additions"
+above). Note that `--scope create` with no `gbrain` installed forwards to
+`init_skill.py`, which creates a *new* template skill at
+`<skill_dir>/<name>/SKILL.md` and refuses when that directory already exists —
+so it writes a file, but never onto an existing skill.
+
+Still copy to a scratch dir (e.g. `C:\Temp\e2e-target\…`) and mutate the copy:
+the `is_bundled()` guard depends on `~/.gbrain/install.json` existing, which it
+does not on every host. See `docs/foundry.md` § 6.
 
 ## Heavy reference
 
