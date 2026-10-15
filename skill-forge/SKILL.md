@@ -36,10 +36,9 @@ when_to_use: >-
 ## What this is
 
 A meta-skill that turns "this skill could be better" into a measured,
-verifiable improvement — or an honest decision to retire it. It routes
-work to `skill-creator` (create/edit) and `gbrain:skill-optimizer`
-(SkillOpt-paper-driven optimization), and scores the result with a
-three-judge gate before letting any change ship.
+verifiable improvement — or an honest decision to retire it. Routes work
+to `skill-creator` / `gbrain:skill-optimizer`; uses a three-judge gate
+before any change ships.
 
 ## When NOT to use
 
@@ -84,7 +83,7 @@ Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` on
 - [ ] Triple-judge summary lists all three judges with scores
 - [ ] `validate_skill_frontmatter()` returns `[]` (no principle violations in this SKILL.md) — see PRINCIPLES.md § 1
 
-The v0 gate was 500 words; v2's 8-frontmatter-field layout + 4 additional body sections (Output Format / Anti-Patterns / When it fails / Tools Used, now in `docs/SKILL_REFERENCE.md`) lifts the natural size to ~800-1000. The 1000-word gate is the new floor; below the floor the SKILL.md is probably missing reference material, above it is probably duplicating `docs/SKILL_REFERENCE.md`.
+The v0 gate was 500 words; the v2 frontmatter layout lifts the natural size to 800-1000. Below 800 the SKILL.md is probably missing reference material; above 1000 it duplicates `docs/SKILL_REFERENCE.md`.
 
 ## v2 specifics (post v0.2.0)
 
