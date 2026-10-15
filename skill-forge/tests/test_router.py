@@ -125,6 +125,95 @@ def test_route_returns_bundled_skill_safety_when_skill_is_installed(tmp_path, mo
     assert called == [], f"subprocess.run was called for a bundled skill: {called!r}"
 
 
+def test_route_skill_dir_env_overrides_ambient_value(tmp_path, monkeypatch):
+    """v2-T7 + RULING-9 v2 corollary: even if a stale SKILL_DIR is set in
+    the parent's environment, the router's computed value wins because
+    **os.environ is spread BEFORE the router's SKILL_DIR key (last-wins
+    per Python dict-literal semantics)."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    wrong_dir = tmp_path / "wrong"
+    wrong_dir.mkdir()
+    monkeypatch.setattr("shutil.which", lambda name: None)  # no gbrain
+    # Inject a stale parent SKILL_DIR.
+    monkeypatch.setenv("SKILL_DIR", str(wrong_dir.resolve()))
+    seen: list[dict] = []
+    def fake_run(cmd, **kw):
+        seen.append({"env": kw.get("env")})
+        class R: returncode = 0; stdout = b""; stderr = b""
+        return R()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    r = route(skill, "create", AuditReport("missing", 1.0, [], "create"))
+    assert r.forwarded_to == "skill-creator"
+    # The router's SKILL_DIR (correct dir) outranks the parent one (wrong dir).
+    assert seen[0]["env"]["SKILL_DIR"] == str(skill.resolve())
+
+
+def test_legacy_shim_passes_resolved_skill_dir_via_env_to_init_skill_path(tmp_path, monkeypatch):
+    """v2-T7 + v2-T3 I-1: when SKILL_DIR is set in the shim's environment
+    and argv is empty, the shim's constructed cmd must pass the resolved
+    skill dir to --path (not Path.cwd(), which is v1's bug class)."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    monkeypatch.setenv("SKILL_DIR", str(skill.resolve()))
+    seen: list[list[str]] = []
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        class R: returncode = 0; stdout = b""; stderr = b""
+        return R()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from scripts._legacy_init_skill import main as shim_main
+    rc = shim_main([])
+    assert rc == 0
+    # The shim's command shape: [sys.executable, <init_skill.py>, name, "--path", dir]
+    assert seen[0][-2] == "--path"
+    assert seen[0][-1] == str(skill.resolve())
+    assert seen[0][-3] == skill.name
+
+
+def test_legacy_shim_falls_back_to_argv_when_env_unset(tmp_path, monkeypatch):
+    """v2-T7 + v2-T3 I-1: when SKILL_DIR is unset and argv has a path,
+    the shim uses argv[0] as the skill dir and passes it (resolved) to --path."""
+    skill = tmp_path / "y"
+    skill.mkdir()
+    monkeypatch.delenv("SKILL_DIR", raising=False)
+    seen: list[list[str]] = []
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        class R: returncode = 0; stdout = b""; stderr = b""
+        return R()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from scripts._legacy_init_skill import main as shim_main
+    rc = shim_main([str(skill.resolve())])
+    assert rc == 0
+    assert seen[0][-2] == "--path"
+    assert seen[0][-1] == str(skill.resolve())
+    assert seen[0][-3] == skill.name
+
+
+def test_legacy_shim_env_wins_over_argv_when_both_set(tmp_path, monkeypatch):
+    """v2-T7 + RULING-9 v2 corollary: when both SKILL_DIR and argv are set
+    to different values, the env value wins (per v2-T7's RULING-9 v2
+    corollary flip)."""
+    env_dir = tmp_path / "env_dir"
+    env_dir.mkdir()
+    argv_dir = tmp_path / "argv_dir"
+    argv_dir.mkdir()
+    monkeypatch.setenv("SKILL_DIR", str(env_dir.resolve()))
+    seen: list[list[str]] = []
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        class R: returncode = 0; stdout = b""; stderr = b""
+        return R()
+    monkeypatch.setattr("subprocess.run", fake_run)
+    from scripts._legacy_init_skill import main as shim_main
+    rc = shim_main([str(argv_dir.resolve())])
+    assert rc == 0
+    # env wins.
+    assert seen[0][-1] == str(env_dir.resolve())
+    assert seen[0][-1] != str(argv_dir.resolve())
+
+
 def test_legacy_shim_refuses_when_skill_dir_missing(monkeypatch, capsys):
     """v2-T3: _legacy_init_skill.py's main([]) with SKILL_DIR unset must
     emit a [FATAL] line to stderr and return 2. The shim never silently

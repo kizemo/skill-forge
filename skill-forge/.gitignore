@@ -4,3 +4,4 @@ __pycache__/
 *.egg-info/
 .venv/
 .skill-forge-baseline.json
+.skill-forge-baseline.*.tmp

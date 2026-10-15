@@ -186,6 +186,44 @@ def test_run_does_not_update_baseline_on_refuse(tmp_path, monkeypatch):
     assert not (skill / ".skill-forge-baseline.json").exists()
 
 
+def test_run_warns_and_proceeds_on_drift_for_non_bundled_skill(tmp_path, monkeypatch, capsys):
+    """v2-T7 + v2-T5 I-1: when the SKILL.md SHA has drifted since the
+    last run AND the skill is NOT bundled, the run proceeds (writes
+    best.md) but emits a [WARN] to stderr. The bundled path is the
+    one where the warn escalates to exit 3; the non-bundled path is
+    the forgiving v1-style behaviour."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    skill_md = skill / "SKILL.md"
+    skill_md.write_text(
+        "---\n"
+        "name: x\n"
+        "description: Use when A or B with symptom S.\n"
+        "---\n"
+        "# body\n",
+        encoding="utf-8",
+    )
+    # Pre-existing baseline with a non-matching SHA.
+    (skill / ".skill-forge-baseline.json").write_text(
+        json.dumps({"sha": "deadbeef", "ts": "2026-10-15T00:00:00Z"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    rc = main(["--skill", str(skill), "--scope", "audit-only"])
+    # Non-bundled: warn and proceed.
+    assert rc == 0
+    # best.md was written.
+    assert (skill / "best.md").exists()
+    # SKILL.md untouched.
+    assert skill_md.read_text(encoding="utf-8") == (
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n"
+    )
+    # [WARN] was printed to stderr.
+    err = capsys.readouterr().err
+    assert "[WARN]" in err
+    assert "drifted" in err
+
+
 def test_run_does_not_write_best_md_on_refuse(tmp_path, monkeypatch):
     """v2-T5: best.md is only written on accept. On refuse, no best.md."""
     skill = tmp_path / "bad"

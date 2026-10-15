@@ -78,7 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         rresult = RouteResult("diagnose-only", 2, str(e), degraded=True)
     _emit(3, "forward", f"target={rresult.forwarded_to} degraded={rresult.degraded} exit={rresult.exit_code} reason={rresult.reason or '—'}")
     candidate = skill_dir / "SKILL.md"
-    baseline = candidate  # RULING-8 part 2: baseline is reserved by T5's signature; T7 v1 passes candidate as both
+    baseline = candidate  # RULING-8 part 2 (v2-T2 modified): baseline is consumed by the rubric prompt (see judge_triple.py); T7 v1 / v2 pass candidate as both. Phase 5 may also re-pin SHA via the race check.
     # v1 wires no rubric; RULING-8: rubric state is derived from llm_call at the call
     # site, never inferred from v.llm_score (0.0 both when skipped and when clamped).
     llm_call = None

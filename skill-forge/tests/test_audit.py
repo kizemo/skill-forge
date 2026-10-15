@@ -1,3 +1,8 @@
+# Fixture precondition (RULING-6 corollary, 2026-10-15): any audit() fixture
+# that targets the contract or prompt branch MUST start `description` with
+# `Use when ...`. The routing branch fires first when description does not
+# start with `Use when`, so the later branches are unreachable from such
+# fixtures. See progress.md § Rulings (v2) → RULING-6 corollary.
 from pathlib import Path
 import pytest
 from scripts.audit import audit, AuditReport

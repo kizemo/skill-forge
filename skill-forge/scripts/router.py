@@ -47,7 +47,17 @@ def route(skill_dir: Path, scope: str, report: AuditReport, *, gbrain_bin: str =
         # (preferred for cwd-agnostic invocation) and falls back to argv[0]
         # for back-compat. See _legacy_init_skill.py for the consumer side.
         cmd = [sys.executable, str(Path(__file__).parent / "_legacy_init_skill.py"), skill_dir.name]
-        env = {"SKILL_DIR": str(skill_dir.resolve()), **os.environ}
+        # v2-T7 (RULING-9 v2 corollary): the router's value is authoritative.
+        # Per Python dict-literal **-spread semantics the LAST occurrence of a
+        # key wins; spreading os.environ FIRST then setting SKILL_DIR means our
+        # computed value outranks any ambient SKILL_DIR. The opposite order
+        # would let a stale parent SKILL_DIR override the router's value,
+        # reintroducing v1's wrong-directory bug class. **os.environ is still
+        # load-bearing on Windows (subprocess.run(env=...) REPLACES the child
+        # environment wholesale; dropping the spread would strip
+        # SystemRoot/COMSPEC/PATHEXT/TEMP and break subprocess creation), so it
+        # cannot be removed — only the order changed.
+        env = {**os.environ, "SKILL_DIR": str(skill_dir.resolve())}
         r = subprocess.run(cmd, capture_output=True, timeout=120, env=env)
         return RouteResult("skill-creator", r.returncode, r.stdout.decode(errors="replace"), degraded=True)
     msg = "gbrain not installed; install gbrain (https://github.com/garrytan/gbrain) to optimize this skill. Audit saved at " + str(skill_dir / "audit-report.md")
