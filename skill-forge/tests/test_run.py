@@ -302,3 +302,23 @@ def test_run_default_held_out_remains_15(tmp_path, monkeypatch):
     assert bench_path.exists()
     payload = [json.loads(line) for line in bench_path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
     assert len(payload) == 15
+
+
+def test_run_warns_when_both_benchmark_and_held_out_are_set(tmp_path, monkeypatch, capsys):
+    """v2-T8 M-3 fix: when both --benchmark <path> and --held-out N are
+    passed, --held-out is silently dropped (--benchmark takes precedence
+    for the call site). Emit a [WARN] to stderr so the user knows."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: x\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    bench = tmp_path / "custom.jsonl"
+    bench.write_text("# BOOTSTRAP_PENDING_REVIEW\n", encoding="utf-8")
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    rc = main(["--skill", str(skill), "--scope", "audit-only", "--benchmark", str(bench), "--held-out", "5"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "[WARN]" in err
+    assert "--held-out" in err and "--benchmark" in err

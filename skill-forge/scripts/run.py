@@ -84,6 +84,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     # v2-T8: --held-out threads n_tasks through to the bootstrap generator;
     # bootstrap's own n_tasks=15 default is preserved when the flag is absent.
     n_tasks = args.held_out if args.held_out is not None else 15
+    # v2-T8 M-3: an explicit --benchmark short-circuits the bootstrap call, so
+    # n_tasks (and therefore --held-out) is silently discarded. Warn instead of
+    # dropping the user's intent on the floor.
+    if args.benchmark is not None and args.held_out is not None:
+        print(
+            f"[WARN] --held-out {args.held_out} ignored: "
+            f"--benchmark <{args.benchmark}> takes precedence (no bootstrap run)",
+            file=sys.stderr,
+        )
     bench = args.benchmark or bootstrap_benchmark(skill_dir, report, n_tasks=n_tasks)
     _emit(2, "bootstrap", f"benchmark={bench}")
     # RULING-9: route()'s subprocess.run is unguarded (router.py ~L23/L27), so

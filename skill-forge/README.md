@@ -9,14 +9,16 @@ See `docs/foundry.md` for the heavy reference — quick start below.
 |---|---|---|---|
 | 0 | audit | `scripts/audit.py` | Classify root cause: prompt / routing / contract / missing / other |
 | 1 | scope | (CLI `--scope`) | User picks: create / improve / audit-only / retire |
-| 2 | bootstrap | `scripts/bootstrap_benchmark.py` | Generate 15 templated benchmark rows (RULING-7) + sentinel |
+| 2 | bootstrap | `scripts/bootstrap_benchmark.py` | Generate 15 templated benchmark rows by default (RULING-7) — override the row count with `--held-out N`; refuses if `N < 5` — plus sentinel |
 | 3 | forward | `scripts/router.py` | Call `gbrain skillopt` or `skill-creator/init_skill` shim; degrade with `RouteResult` (RULING-9) |
 | 4 | verify | `scripts/judge_triple.py` | Deterministic + LLM rubric + spot check; RULING-1 llm_call=None → rubric skipped |
 | 5 | materialize | `scripts/run.py::_materialize` | Write `audit-report.md`; accept or refuse |
 
 ## v2 safety additions
 
-v2 hardened what happens under each phase without adding any CLI flag.
+v2 hardened what happens under each phase, adding one new CLI flag, `--held-out N`
+(phase 2 held-out task count; refuses if `N < 5`). If both `--benchmark <path>`
+and `--held-out N` are passed, `--benchmark` wins and a `[WARN]` is emitted to stderr.
 
 - **`SKILL.md` is never overwritten.** On accept, the candidate content is
   written to `best.md` (your skill) or `proposed.md` (bundled skill); you
@@ -57,7 +59,7 @@ picks up a stray `scripts` namespace package and fails).
 
 ## Verification
 
-- 53 tests pass via `cd skill-forge && pytest -q` (bare invocation, RULING-4).
+- 57 tests pass via `cd skill-forge && pytest -q` (bare invocation, RULING-4).
 - One E2E smoke captured at `tests/_artifacts/e2e-skillopt-self.md` (against a
   copy of `gbrain:skill-optimizer`, exit code 2).
 
