@@ -36,10 +36,10 @@ when_to_use: >-
 ## What this is
 
 A meta-skill that turns "this skill could be better" into a measured,
-verifiable improvement — or an honest decision to retire it. It does not
-edit skills directly; it routes work to `skill-creator` (create/edit) and
-`gbrain:skill-optimizer` (SkillOpt-paper-driven optimization), and scores
-the result with a three-judge gate before letting any change ship.
+verifiable improvement — or an honest decision to retire it. It routes
+work to `skill-creator` (create/edit) and `gbrain:skill-optimizer`
+(SkillOpt-paper-driven optimization), and scores the result with a
+three-judge gate before letting any change ship.
 
 ## When NOT to use
 
@@ -58,7 +58,7 @@ the result with a three-judge gate before letting any change ship.
 | 4 | verify | Deterministic trace + LLM rubric + spot check; absent rubric ≠ failure (RULING-1); any regression refuses |
 | 5 | materialize | `audit-report.md` (always) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); bundled `SKILL.md` is never overwritten |
 
-Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory. Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
+Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
 
 ## Common Rationalizations
 
@@ -86,8 +86,6 @@ Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory
 
 The v0 gate was 500 words; v2's 8-frontmatter-field layout + 4 additional body sections (Output Format / Anti-Patterns / When it fails / Tools Used, now in `docs/SKILL_REFERENCE.md`) lifts the natural size to ~800-1000. The 1000-word gate is the new floor; below the floor the SKILL.md is probably missing reference material, above it is probably duplicating `docs/SKILL_REFERENCE.md`.
 
-> Output Format, Anti-Patterns, When it fails, and Tools Used live in [`docs/SKILL_REFERENCE.md`](SKILL_REFERENCE.md) per the progressive-disclosure principle (PRINCIPLES.md § 3). They are loaded only when troubleshooting, not on every invocation.
-
 ## v2 specifics (post v0.2.0)
 
 - **Exit codes** — `0` accept · `2` refuse · `3` race (a bundled skill's `SKILL.md` SHA drifted between audit and materialize). Distinct codes for distinct failure modes so CI can route them differently.
@@ -95,4 +93,4 @@ The v0 gate was 500 words; v2's 8-frontmatter-field layout + 4 additional body s
 - **Bundled-skill safety** — `is_bundled(skill_dir)` reads `~/.gbrain/install.json` and short-circuits the route phase for marketplace installs. **Fails open** if `install.json` is missing — copy the skill to a scratch dir before iterating.
 - **`--held-out N`** — overrides the default 15-row benchmark; refuses with exit `2` when `N < 5` (gbrain hard-refuses <5 internally).
 - **Triple-judge details** — `description` must be a YAML block scalar (RULING-5); YAML-list `description` refuses instead of raising; `baseline` is consumed in the rubric prompt so a real LLM call can compare candidate vs. baseline; rubric-skipped is invisible in `verdict.llm_score` — branch on `llm_call is None` at the call site, never on the verdict (RULING-8).
-- **Skip optional deps gracefully** — `pip install -e .` pulls `pyyaml`; without it the frontmatter loader raises `ImportError` instead of returning a partial result. The rest of the pipeline degrades to `diagnose-only` (no `gbrain` on PATH) or refuses on missing frontmatter (no `pyyaml`).
+- **Skip optional deps gracefully** — without `pyyaml` the frontmatter loader raises; without `gbrain` the pipeline degrades to `diagnose-only.
