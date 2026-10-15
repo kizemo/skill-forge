@@ -84,15 +84,34 @@ python -m scripts.run --skill C:/Temp/e2e-target/my-skill --scope improve
 | **Heavy reference** | [`skill-forge/docs/foundry.md`](skill-forge/docs/foundry.md) | ~670-line deep dive: phase semantics, the file-state model, RULING-1..10 ledger, failure catalog, change-log, every detail this README skips |
 | **Local deployment** | [`skill-forge/docs/DEPLOYMENT.md`](skill-forge/docs/DEPLOYMENT.md) | The PowerShell junction + `pip install -e .` recipe that puts skill-forge at `~/.claude/skills/skill-forge/` for cc-haha / Claude Code discovery |
 | **SKILL.md (entry)** | [`skill-forge/SKILL.md`](skill-forge/SKILL.md) | The gbrain-conformance frontmatter that the LLM reads when invoking the skill |
+| **SKILL reference** | [`skill-forge/docs/SKILL_REFERENCE.md`](skill-forge/docs/SKILL_REFERENCE.md) | Heavy reference split off from SKILL.md: Output Format, Anti-Patterns, When it fails, Tools Used (loaded on demand, not on every invocation) |
+| **Skill-writing principles** | [`skill-forge/docs/PRINCIPLES.md`](skill-forge/docs/PRINCIPLES.md) | The 8 frontmatter principles + body principles + safety principles that `skill-forge` itself follows and enforces. `validate_skill_frontmatter()` in code catches violations and surfaces them as evidence in `audit-report.md` |
 | **Spec** | [`analysis-2026-10-14.md`](analysis-2026-10-14.md) | The v0 spec that started the project |
+
+### Skill-writing principles (self-imposed)
+
+`skill-forge` follows — and now *enforces* in code — the 8 frontmatter principles documented in [`skill-forge/docs/PRINCIPLES.md`](skill-forge/docs/PRINCIPLES.md):
+
+1. **Concise description** (recommended ≤ 1024 chars; one sentence + concrete triggers)
+2. **YAML block scalar** (`>-` or `|`) when the description contains `:` or `'`
+3. **Explicit `triggers:` list** (≥ 3 concrete user phrases)
+4. **`mutating:` boolean** declared
+5. **`name:` is lowercase kebab-case**
+6. **`brain_first:` declared** (gbrain convention)
+7. **`when_to_use:`** one-line summary
+8. **`version:`** semver (MAJOR.MINOR.PATCH)
+
+A target skill that fails any of these gets a warning in `audit-report.md` (evidence list). Warnings are **non-fatal** — `skill-forge` does not refuse a skill on principle violations; the materialize still runs and the author reviews the warnings. The 6-phase pipeline is the safety property, the principles are the maintainability property.
+
+Progressive disclosure: the frontmatter is always loaded; the lean body is loaded on demand; the heavy reference (`docs/SKILL_REFERENCE.md`) is loaded only when troubleshooting.
 
 ### State
 
 | | |
 |---|---|
-| Latest commit | `722a4bb` (on `main`) |
+| Latest commit | `d019eb9` (on `main`) |
 | Tag | `v0.2.0-rc1` |
-| Tests | 58 (all green) |
+| Tests | 76 (all green; 58 from v0.2.0 + 18 new for `validate_skill_frontmatter()`) |
 | License | None — default copyright. Add a `LICENSE` to grant downstream rights. |
 
 ---
@@ -176,15 +195,34 @@ python -m scripts.run --skill C:/Temp/e2e-target/my-skill --scope improve
 | **大而全的参考** | [`skill-forge/docs/foundry.md`](skill-forge/docs/foundry.md) | ~670 行深潜:阶段语义、文件状态模型、RULING-1..10 台账、失败目录、变更日志、本 README 跳过的所有细节 |
 | **本地部署** | [`skill-forge/docs/DEPLOYMENT.md`](skill-forge/docs/DEPLOYMENT.md) | PowerShell junction + `pip install -e .` 配方,把 skill-forge 放到 `~/.claude/skills/skill-forge/` 给 cc-haha / Claude Code 发现 |
 | **SKILL.md(入口)** | [`skill-forge/SKILL.md`](skill-forge/SKILL.md) | LLM 调用 skill 时读的 gbrain-conformance frontmatter |
+| **SKILL reference** | [`skill-forge/docs/SKILL_REFERENCE.md`](skill-forge/docs/SKILL_REFERENCE.md) | 从 SKILL.md 拆出的重参考:Output Format / Anti-Patterns / When it fails / Tools Used(按需加载,非每次调用都读) |
+| **skill 撰写原则** | [`skill-forge/docs/PRINCIPLES.md`](skill-forge/docs/PRINCIPLES.md) | `skill-forge` 自己遵循并在代码中**强制**的 8 条 frontmatter 原则 + body 原则 + 安全原则。`validate_skill_frontmatter()` 把违反写到 `audit-report.md` 的 evidence 列表 |
 | **规格** | [`analysis-2026-10-14.md`](analysis-2026-10-14.md) | 启动本项目的 v0 规格 |
+
+### skill 撰写原则(自我约束)
+
+`skill-forge` 遵循 — 并且现在在代码中**强制** — [`skill-forge/docs/PRINCIPLES.md`](skill-forge/docs/PRINCIPLES.md) 里文档化的 8 条 frontmatter 原则:
+
+1. **描述简洁**(推荐 ≤ 1024 字;一句话 + 具体 triggers)
+2. **YAML block scalar**(`>-` 或 `|`)— 描述含 `:` 或 `'` 时
+3. **显式 `triggers:` 列表**(≥ 3 条具体用户短语)
+4. **`mutating:` 布尔**必须声明
+5. **`name:` 小写 kebab-case**
+6. **`brain_first:` 声明**(gbrain 约定)
+7. **`when_to_use:`** 一句话总结
+8. **`version:`** semver(MAJOR.MINOR.PATCH)
+
+违反任一原则的目标 skill,审计时会在 `audit-report.md` evidence 列表里出 warning。Warning 是**非致命的** — skill-forge 不会因为原则违反拒绝一个 skill;物化照跑,作者读 warning 自己改。6 阶段流水线是**安全**属性,原则是**可维护性**属性。
+
+渐进式披露:frontmatter 永远加载;精简 body 按需加载;重参考(`docs/SKILL_REFERENCE.md`)只在排查时才读。
 
 ### 当前状态
 
 | | |
 |---|---|
-| 最新 commit | `722a4bb`(在 `main`) |
+| 最新 commit | `d019eb9`(在 `main`) |
 | Tag | `v0.2.0-rc1` |
-| 测试 | 58(全绿) |
+| 测试 | 76(全绿;v0.2.0 的 58 + `validate_skill_frontmatter()` 的 18 个新测试) |
 | 许可证 | 无 — 默认保留所有权利。加一个 `LICENSE` 文件即可向下游授权。 |
 
 </details>
