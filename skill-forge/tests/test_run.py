@@ -533,3 +533,130 @@ def test_run_accepts_split_and_max_usd_cli_flags(tmp_path, monkeypatch):
     cmd = skillopt[0]["cmd"]
     assert "2:1:2" in cmd, cmd
     assert "1.25" in cmd, cmd
+
+
+# --- P0-2: the rubric judge is a real, independently-sourced model ---
+
+def _judge_script(tmp_path) -> Path:
+    s = tmp_path / "llm_call.py"
+    s.write_text("# stub judge\n", encoding="utf-8")
+    return s
+
+
+def test_run_injects_a_real_rubric_judge_when_model_configured(tmp_path, monkeypatch):
+    """P0-2: --rubric-model must actually cause a judge call. The judge
+    is a different source from the candidate's author, so the model is
+    named explicitly and passed to the channel."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kw):
+        seen.append(list(cmd))
+        class R:
+            returncode = 0
+            stdout = b"0.92"
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main([
+        "--skill", str(skill), "--scope", "audit-only",
+        "--rubric-model", "minimax/MiniMax-M3",
+        "--rubric-script", str(_judge_script(tmp_path)),
+    ])
+    judge_calls = [c for c in seen if "--model" in c]
+    assert judge_calls, [c for c in seen]
+    assert "minimax/MiniMax-M3" in judge_calls[0], judge_calls[0]
+
+
+def test_run_phase4_marker_names_the_judge_model(tmp_path, monkeypatch, capsys):
+    """The Phase 4 marker must name the judge model so the operator can
+    see that the review came from a different source than the author."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kw):
+        class R:
+            returncode = 0
+            stdout = b"0.92"
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main([
+        "--skill", str(skill), "--scope", "audit-only",
+        "--rubric-model", "minimax/MiniMax-M3",
+        "--rubric-script", str(_judge_script(tmp_path)),
+    ])
+    out = capsys.readouterr().out
+    assert "llm=0.92" in out, out
+    assert "minimax/MiniMax-M3" in out, out
+
+
+def test_run_skips_rubric_when_no_model_configured(tmp_path, monkeypatch, capsys):
+    """No --rubric-model -> the rubric stays skipped (RULING-1). The
+    default behaviour of the pipeline is unchanged."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    seen: list[list[str]] = []
+
+    def fake_run(cmd, **kw):
+        seen.append(list(cmd))
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main(["--skill", str(skill), "--scope", "audit-only"])
+    assert not [c for c in seen if "--model" in c], seen
+    out = capsys.readouterr().out
+    assert "rubric-skipped" in out, out
+
+
+def test_run_reports_a_broken_judge_instead_of_hiding_it(tmp_path, monkeypatch, capsys):
+    """A configured judge that errors must be visible. It must not
+    silently pass the run as if the rubric had approved it."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+
+    def fake_run(cmd, **kw):
+        class R:
+            returncode = 1
+            stdout = b""
+            stderr = b"401 token is required"
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main([
+        "--skill", str(skill), "--scope", "audit-only",
+        "--rubric-model", "minimax/MiniMax-M3",
+        "--rubric-script", str(_judge_script(tmp_path)),
+    ])
+    captured = capsys.readouterr()
+    assert "[WARN]" in captured.err, captured.err
+    assert "401" in captured.err, captured.err
+    assert "rubric-skipped" in captured.out, captured.out
+

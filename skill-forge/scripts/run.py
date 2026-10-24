@@ -12,6 +12,7 @@ from scripts._lib.baseline_log import race, write_baseline
 from scripts._lib.bundle import is_bundled
 from scripts._lib.sha import content_hash
 from scripts.judge_triple import judge
+from scripts._lib.llm_channel import discover_rubric_script, make_llm_call
 from scripts.router import DEFAULT_MAX_USD, DEFAULT_SPLIT, RouteResult, route
 
 PHASES = ("audit", "scope", "bootstrap", "forward", "verify", "materialize")
@@ -137,6 +138,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--gbrain-home", type=Path, default=None,
                    help="Isolated GBRAIN_HOME for the gbrain subprocess "
                         f"(default: {DEFAULT_GBRAIN_HOME}). Pass 'inherit' to use the parent's.")
+    # P0-2: the rubric judge. The judge must be a DIFFERENT source from
+    # whoever authored the candidate, so the model is named explicitly and
+    # echoed in the Phase 4 marker. Omit --rubric-model to keep the
+    # rubric skipped (RULING-1: absent rubric != failure).
+    p.add_argument("--rubric-model", default=None,
+                   help="Model that judges the candidate (e.g. minimax/MiniMax-M3). "
+                        "Omit to skip the rubric entirely.")
+    p.add_argument("--rubric-script", type=Path, default=None,
+                   help="llm-call script that performs the judge call "
+                        "(default: auto-discover the llm-call skill).")
+    p.add_argument("--rubric-timeout", type=int, default=180,
+                   help="Seconds the judge may take before it is treated as errored.")
     args = p.parse_args(argv)
     # v2-T8: early guard, before the skill_dir existence check and before any
     # phase runs — the pipeline is never entered for N<5.
@@ -196,9 +209,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     baseline = candidate  # RULING-8 part 2 (v2-T2 modified): baseline is consumed by the rubric prompt (see judge_triple.py); T7 v1 / v2 pass candidate as both. Phase 5 may also re-pin SHA via the race check.
     # v1 wires no rubric; RULING-8: rubric state is derived from llm_call at the call
     # site, never inferred from v.llm_score (0.0 both when skipped and when clamped).
+    # P0-2: when --rubric-model is given, a real judge is wired in. The judge
+    # is a different source from the candidate's author, so the model is named
+    # in the Phase 4 marker. A judge that ERRORS is reported, not hidden, and
+    # is treated as skipped rather than as a "no".
     llm_call = None
-    v = judge(candidate, baseline, report, llm_call=llm_call, spot_input=None if args.spot_check == 0 else {"verdict": True})
-    rubric = "rubric-skipped" if llm_call is None else f"llm={v.llm_score:.2f}"
+    rubric_errors: list[str] = []
+    if args.rubric_model:
+        rubric_script = args.rubric_script or discover_rubric_script()
+        llm_call = make_llm_call(
+            model=args.rubric_model, script=rubric_script, timeout=args.rubric_timeout,
+        )
+        if llm_call is None:
+            print(
+                f"[WARN] rubric judge requested ({args.rubric_model}) but no judge "
+                f"script is available; the rubric will be skipped",
+                file=sys.stderr,
+            )
+    v = judge(candidate, baseline, report, llm_call=llm_call,
+              spot_input=None if args.spot_check == 0 else {"verdict": True},
+              on_rubric_error=rubric_errors.append)
+    for err in rubric_errors:
+        print(
+            f"[WARN] rubric judge errored ({err}); treating the rubric as "
+            f"skipped, not failed",
+            file=sys.stderr,
+        )
+    if llm_call is None or rubric_errors:
+        rubric = "rubric-skipped"
+    else:
+        rubric = f"llm={v.llm_score:.2f}@{args.rubric_model}"
     _emit(4, "verify", f"det={v.deterministic_pass} {rubric} spot={v.spot_accepted} accept={v.accept}")
     # v2-T5: SHA-baseline race check before materialize. If SKILL.md drifted
     # since the last successful run, a bundled skill is refused outright
