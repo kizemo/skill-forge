@@ -5,3 +5,11 @@ __pycache__/
 .venv/
 .skill-forge-baseline.json
 .skill-forge-baseline.*.tmp
+
+# skill-forge's own run artifacts. The deployed skill dir IS this repo
+# (junction), so a run whose --skill points here — including a run
+# against skill-forge itself — drops its output in the working tree.
+audit-report.md
+best.md
+proposed.md
+skillopt-benchmark.jsonl
