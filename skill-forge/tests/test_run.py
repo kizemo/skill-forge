@@ -569,6 +569,7 @@ def test_run_injects_a_real_rubric_judge_when_model_configured(tmp_path, monkeyp
         "--skill", str(skill), "--scope", "audit-only",
         "--rubric-model", "minimax/MiniMax-M3",
         "--rubric-script", str(_judge_script(tmp_path)),
+        "--rubric-transport", "script",
     ])
     judge_calls = [c for c in seen if "--model" in c]
     assert judge_calls, [c for c in seen]
@@ -598,6 +599,7 @@ def test_run_phase4_marker_names_the_judge_model(tmp_path, monkeypatch, capsys):
         "--skill", str(skill), "--scope", "audit-only",
         "--rubric-model", "minimax/MiniMax-M3",
         "--rubric-script", str(_judge_script(tmp_path)),
+        "--rubric-transport", "script",
     ])
     out = capsys.readouterr().out
     assert "llm=0.92" in out, out
@@ -654,6 +656,7 @@ def test_run_reports_a_broken_judge_instead_of_hiding_it(tmp_path, monkeypatch, 
         "--skill", str(skill), "--scope", "audit-only",
         "--rubric-model", "minimax/MiniMax-M3",
         "--rubric-script", str(_judge_script(tmp_path)),
+        "--rubric-transport", "script",
     ])
     captured = capsys.readouterr()
     assert "[WARN]" in captured.err, captured.err

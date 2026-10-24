@@ -21,15 +21,20 @@ failure. This module keeps two kinds of absence distinct:
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable
 
 __all__ = [
     "RubricError",
     "make_llm_call",
+    "make_http_llm_call",
+    "http_channel_from_env",
     "parse_score",
     "discover_rubric_script",
     "default_launcher",
@@ -104,6 +109,79 @@ def _as_text(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode(errors="replace")
     return value
+
+
+def make_http_llm_call(*, base_url: str | None, api_key: str | None, model: str | None,
+                       timeout: int = 120, max_tokens: int = 2048,
+                       extra_headers: dict[str, str] | None = None) -> Callable[[str], float] | None:
+    """Build the rubric's llm_call over an Anthropic-compatible HTTP endpoint.
+
+    Why this exists alongside the script channel: the llm-call script on
+    this host needs a MiniMax token that only the MiniMax app can refresh,
+    so a standalone call 401s. The session's own Anthropic-compatible
+    endpoint IS authenticated and synchronous — and its model pool is
+    layered, so the judge can run on a DIFFERENT model from the one the
+    candidate's author used (e.g. ANTHROPIC_DEFAULT_OPUS_MODEL vs
+    ANTHROPIC_MODEL). An independent reviewer, in its own process, with
+    no shared context.
+
+    Only the `text` blocks of the response are read. A thinking block
+    carries numbers of its own; the verdict is the text block.
+    """
+    if not (base_url and api_key and model):
+        return None
+    url = base_url.rstrip("/") + "/v1/messages"
+    headers = {
+        "content-type": "application/json",
+        "x-api-key": api_key,
+        "authorization": f"Bearer {api_key}",
+        "anthropic-version": "2023-06-01",
+        **(extra_headers or {}),
+    }
+
+    def llm_call(prompt: str) -> float:
+        payload = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"), headers=headers,
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            detail = ""
+            try:
+                detail = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            raise RubricError(f"judge HTTP {e.code}: {detail}") from e
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise RubricError(f"judge channel failed: {e}") from e
+        text = "\n".join(
+            block.get("text", "")
+            for block in data.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+        if not text.strip():
+            raise RubricError("judge returned no text block")
+        return parse_score(text)
+
+    return llm_call
+
+
+def http_channel_from_env(model: str | None) -> Callable[[str], float] | None:
+    """Build the HTTP judge from the ambient Anthropic-compatible env.
+
+    Uses ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN (or ANTHROPIC_API_KEY).
+    Returns None when the environment does not carry a usable endpoint —
+    the caller then falls back to the script channel or skips the rubric.
+    """
+    base_url = os.environ.get("ANTHROPIC_BASE_URL")
+    api_key = os.environ.get("ANTHROPIC_AUTH_TOKEN") or os.environ.get("ANTHROPIC_API_KEY")
+    return make_http_llm_call(base_url=base_url, api_key=api_key, model=model)
 
 
 def make_llm_call(*, model: str | None, script: Path | None,

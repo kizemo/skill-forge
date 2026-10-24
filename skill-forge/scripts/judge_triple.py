@@ -19,13 +19,27 @@ from scripts.audit import AuditReport
 # decision: the bodies travel in the prompt, so any judge that can read
 # text can judge.
 RUBRIC_TEMPLATE = """You are an independent reviewer of Agent Skills.
-Compare the CANDIDATE skill against the BASELINE skill.
+Compare the CANDIDATE against the BASELINE and score how much better the
+CANDIDATE is, from 0.0 to 1.0.
 
-Score the candidate from 0.0 to 1.0 on how much better it is as a skill:
-- Is the description a clear routing trigger ("Use when ...", <= 50 words)?
-- Does the body have substance (phases, gotchas, red flags) rather than
-  filler?
-- Is it free of unresolved placeholders (TODO / TBD)?
+JUDGE PRINCIPLES, NOT LENGTH. A longer body is NOT a better skill. Extra
+explanatory prose, "default behavior" notes, navigation pointers to other
+docs and tutorial sentences are a TAX paid by every user on every session
+("each skill is a tax"). The Pascal test applies: for every sentence ask
+"would the agent fail without this?" If no, the sentence is dead weight
+and the SHORTER body wins. Length alone is NEVER a reason to score a
+candidate higher; deleting dead weight is an improvement.
+
+Score the candidate on:
+- Routing clarity: does the description start with "Use when ..." or
+  "Load when ...", stay under 50 words, and name the user's intent?
+- Information density: is every sentence a decision signal or a constraint
+  (phases, gotchas, red flags, verification) rather than filler? Does the
+  body carry gotchas (Common Rationalizations / Red Flags / Anti-Patterns)?
+- Placeholders: is it free of unresolved TODO / TBD?
+
+Score 1.0 only when the candidate is clearly better on these points.
+Score below 0.5 only when the candidate is genuinely worse.
 
 Reply with ONLY a single number between 0.0 and 1.0. No explanation.
 

@@ -106,3 +106,28 @@ def test_judge_reraises_the_channel_error_without_a_sink(tmp_path: Path):
     base, cand = _pair(tmp_path)
     with pytest.raises(RubricError):
         judge(cand, base, AuditReport("prompt", 0.8, [], "improve"), llm_call=llm_call)
+
+
+def test_rubric_prompt_explicitly_forbids_length_bias(tmp_path: Path):
+    """P0-2 follow-up: the first version of this prompt said "does the body
+    have substance ... rather than filler?", and the judge read that as
+    "longer = better" — it scored skill-forge's own Pascal-trimmed
+    SKILL.md (797 words) at 0.48 against the pre-trim version (903 words)
+    at 0.82, i.e. backwards. The same model, asked directly, rated the
+    shorter one higher (1.0). The prompt must therefore state the
+    anti-length rule explicitly, or the gate is worse than no gate."""
+    base, cand = _pair(tmp_path)
+    p = rubric_prompt(cand, base)
+    low = p.lower()
+    assert "length" in low, p
+    assert "never" in low or "not a reason" in low, p
+    assert "pascal" in low, p
+
+
+def test_rubric_prompt_names_the_principles_it_scores(tmp_path: Path):
+    """The prompt must name the criteria it scores, so the judge is
+    scoring the PRINCIPLES and not its own taste."""
+    base, cand = _pair(tmp_path)
+    p = rubric_prompt(cand, base).lower()
+    for token in ("routing", "gotcha", "placeholder"):
+        assert token in p, f"{token} missing from the rubric prompt"

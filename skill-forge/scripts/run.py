@@ -12,7 +12,11 @@ from scripts._lib.baseline_log import race, write_baseline
 from scripts._lib.bundle import is_bundled
 from scripts._lib.sha import content_hash
 from scripts.judge_triple import judge
-from scripts._lib.llm_channel import discover_rubric_script, make_llm_call
+from scripts._lib.llm_channel import (
+    discover_rubric_script,
+    http_channel_from_env,
+    make_llm_call,
+)
 from scripts.router import DEFAULT_MAX_USD, DEFAULT_SPLIT, RouteResult, route
 
 PHASES = ("audit", "scope", "bootstrap", "forward", "verify", "materialize")
@@ -150,6 +154,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "(default: auto-discover the llm-call skill).")
     p.add_argument("--rubric-timeout", type=int, default=180,
                    help="Seconds the judge may take before it is treated as errored.")
+    p.add_argument("--rubric-transport", choices=["auto", "http", "script"], default="auto",
+                   help="How the judge is reached: 'http' uses the ambient "
+                        "Anthropic-compatible endpoint, 'script' uses the llm-call "
+                        "script, 'auto' prefers http and falls back to script.")
     args = p.parse_args(argv)
     # v2-T8: early guard, before the skill_dir existence check and before any
     # phase runs — the pipeline is never entered for N<5.
@@ -216,14 +224,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     llm_call = None
     rubric_errors: list[str] = []
     if args.rubric_model:
-        rubric_script = args.rubric_script or discover_rubric_script()
-        llm_call = make_llm_call(
-            model=args.rubric_model, script=rubric_script, timeout=args.rubric_timeout,
-        )
+        if args.rubric_transport in ("auto", "http"):
+            llm_call = http_channel_from_env(args.rubric_model)
+        if llm_call is None and args.rubric_transport in ("auto", "script"):
+            rubric_script = args.rubric_script or discover_rubric_script()
+            llm_call = make_llm_call(
+                model=args.rubric_model, script=rubric_script, timeout=args.rubric_timeout,
+            )
         if llm_call is None:
             print(
                 f"[WARN] rubric judge requested ({args.rubric_model}) but no judge "
-                f"script is available; the rubric will be skipped",
+                f"channel is available; the rubric will be skipped",
                 file=sys.stderr,
             )
     v = judge(candidate, baseline, report, llm_call=llm_call,
