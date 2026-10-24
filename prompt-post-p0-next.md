@@ -1,0 +1,1 @@
+承接 skill-forge P0-1/P0-2(已完成并推送,HEAD=24a92c0,147 tests pass),见 F:\soft\00selfmade\skill-optimizer\handoff-2026-10-24-skill-forge-p0.md —— 下一棒是 4 条未修 Concern,尤其 C-1(gbrain 按名字解析 skill,需另一个项目的 gbrain_forward.py 才能补齐)

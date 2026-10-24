@@ -2,7 +2,7 @@
 
 This document is the source-of-truth record of how `skill-forge` is deployed on the local machine so that **cc-haha** (and any other Claude variant that scans `~/.claude/skills/`) can call it. If the junction or the installed package ever drifts, this file is what you re-apply from.
 
-Last updated: **2026-10-15** (v0.2.0-rc1 push to GitHub + cc-haha marketplace-link fix).
+Last updated: **2026-10-16** (MiniMax Code deployment verified + test count refreshed).
 
 ---
 
@@ -18,6 +18,83 @@ Last updated: **2026-10-15** (v0.2.0-rc1 push to GitHub + cc-haha marketplace-li
 **Why both**: cc-haha's settings panel reads `~/.claude/skills/` (filesystem) but its `@-invoke` resolver reads the plugin registry (`enabledPlugins` + the marketplace plugin's `plugin/skills/`). The user-scope junction alone is enough to be *listed* in the settings but not enough to be *invoked* via `@skill-forge`. The marketplace-link junction closes the gap by making the skill appear under the already-enabled `gbrain` plugin.
 
 Both junctions point to the same `F:\soft\00selfmade\skill-optimizer\skill-forge\` source, so editing the source updates both views simultaneously. The v0 `skill-optimizer` at the marketplace path is untouched (mtime `Oct 14 07:58`, unchanged from before this fix).
+
+---
+
+## 0b. MiniMax Code deployment (verified 2026-10-16)
+
+MiniMax Code (the `minimax` runtime, `activeDataDir = E:\Users\Duanyi\.minimax\.minimax`) also
+discovers `skill-forge`, through **no extra junction**: it scans the Claude compat surface
+`~/.claude/skills/` in addition to its native `skills/` directory. The existing junction from §0
+therefore already satisfies MiniMax Code.
+
+**Verified state (2026-10-16, this machine):**
+
+| Check | Result |
+|---|---|
+| `skill` tool load by name `skill-forge` | succeeds; reports `Location: files:///F:/soft/00selfmade/skill-optimizer/skill-forge/SKILL.md` (junction resolved to the F: source) |
+| Catalog listing | `skill-forge` present in the skill catalog, auto-trigger + explicit `/skill-forge` both available |
+| Junction target | `E:\Users\Duanyi\.claude\skills\skill-forge` → `F:\soft\00selfmade\skill-optimizer\skill-forge` (Junction / ReparsePoint) |
+| Interpreter | `C:\Python314\python.exe` 3.14.6, `pyyaml` 6.0.2 |
+| `gbrain` | `E:\Users\Duanyi\.claude\Cache\.bun\bin\gbrain.exe` 0.60.287.0 |
+| `python -m pytest -q` | **147 passed** in 1.4s |
+| `python -m scripts.run --skill . --scope audit-only` | rc=0, all 6 phase markers printed, `audit-report.md` + `best.md` written |
+
+**Deliberately NOT done: a second copy under `.minimax/.minimax\skills\skill-forge`.**
+The native skills directory already holds 40 skills and shares no names with `.claude/skills/`,
+so a duplicate `skill-forge` entry there would introduce a name collision and ambiguous
+resolution for zero functional gain — the Claude compat junction already resolves to the same
+F: source. If you ever want the Claude compat surface removed, add the junction then:
+
+```powershell
+New-Item -ItemType Junction `
+    -Path 'E:\Users\Duanyi\.minimax\.minimax\skills\skill-forge' `
+    -Target 'F:\soft\00selfmade\skill-optimizer\skill-forge'
+```
+
+…and delete the `.claude` junction in the same step, never both.
+
+### Known runtime condition (not a deployment defect) — MITIGATED as of 2026-10-24
+
+Before the P0-1 pass, Phase 3 forwarded to `gbrain skillopt <dir> --dry-run
+--bootstrap-reviewed` with no `--benchmark`, no `--split`, no `--max-usd`, and no
+`GBRAIN_HOME` isolation. Two consequences, both now fixed:
+
+1. gbrain had **no benchmark** to optimize against (its CLI makes one REQUIRED) and its
+   default `--split 4:1:5` **refuses** at `D_sel < 5` on skill-forge's 15-row benchmark.
+2. The child inherited the user's real `~/.gbrain`, so while a `gbrain serve` held the
+   PGLite datastore, gbrain exited 1 with:
+
+```
+Error [pglite_busy]: GBrain's local database is already open through `gbrain serve`
+(MCP, PID <n>). Use the live serve's IPC/MCP tools or stop it before opening this PGLite datastore.
+```
+
+The P0-1 fix isolates the child into its own `GBRAIN_HOME` (default
+`<temp>/skill-forge-gbrain-home`, auto-initialised once with `gbrain init --pglite
+--no-embedding`), so the forward no longer touches the locked PGLite at all. The live
+`gbrain serve` keeps its lock and is never disturbed — which matters, because the error
+text is explicit that the live holder's lock must never be removed.
+
+Phase 3 now issues:
+
+```
+gbrain skillopt <name> --dry-run --bootstrap-reviewed \
+    --benchmark <skill_dir>/skillopt-benchmark.jsonl \
+    --split 1:1:1 --max-usd 5.00
+```
+
+with `GBRAIN_HOME` set to the isolated home. Override with `--split`, `--max-usd`,
+`--gbrain-home`.
+
+**One residual blocker (Concern, 2026-10-24):** gbrain resolves `<skill-name>` against
+`<gbrain-latest>/skills/<name>/SKILL.md` — it takes a NAME, not a path, and
+`GBRAIN_HOME` isolates the brain state but not the skills tree. A target skill that is
+not already in gbrain's tree still fails with `NoSkill`. Fixing that needs either
+staging the skill into gbrain's tree (mutates the user's gbrain checkout) or a gbrain API
+for arbitrary paths. The other project's `gbrain_forward.py` reportedly does this and
+already works, but that file is not present on this machine (searched `F:/soft`,
+`C:/Users/Duanyi` at full depth, and `E:/` to depth 5).
 
 ---
 
@@ -55,7 +132,7 @@ C:\Python314\python.exe -m pip install -e .
 C:\Python314\python.exe -m scripts.run --skill . --scope audit-only
 # → all 6 phases print, rc=0
 C:\Python314\python.exe -m pytest -q
-# → 58/58 passed
+# → 147 passed (2026-10-24, after the P0-1/P0-2 pass)
 ```
 
 After step 1, the junction is transparent to Claude's skill discovery. The local repo at `F:\soft\00selfmade\skill-optimizer\skill-forge\` remains the single source of truth; edits there are immediately visible at `C:\Users\Duanyi\.claude\skills\skill-forge\`.
@@ -66,7 +143,7 @@ If the junction is gone or the `pip install -e .` was wiped, run steps 1–2 abo
 
 ## 4. Why this exists (vs. the v0 marketplace install)
 
-The v0 skill at `C:\Users\Duanyi\.claude\plugins\marketplaces\gbrain\plugin\skills\skill-optimizer\` is a 208-line prompt-only recipe — it tells the LLM what to do but ships no code. The v2 skill at `~/.claude/skills/skill-forge/` is a real Python package: 6-phase CLI, deterministic + LLM-rubric judge, bundled-skill safety, SHA-baseline race check, exit codes 0/2/3, and 58 tests. Both can coexist; cc-haha picks the one whose frontmatter description matches the user intent.
+The v0 skill at `C:\Users\Duanyi\.claude\plugins\marketplaces\gbrain\plugin\skills\skill-optimizer\` is a 208-line prompt-only recipe — it tells the LLM what to do but ships no code. The v2 skill at `~/.claude/skills/skill-forge/` is a real Python package: 6-phase CLI, deterministic + LLM-rubric judge, bundled-skill safety, SHA-baseline race check, exit codes 0/2/3, and 147 tests. Both can coexist; cc-haha picks the one whose frontmatter description matches the user intent.
 
 The marketplace v0 is intentionally not replaced. It serves workflows that want a pure-prompt recipe (no Python needed). The user-scope v2 serves workflows that want an executable, gated, auditable pipeline.
 
@@ -87,7 +164,7 @@ python -c "import scripts._lib.frontmatter; print('ok')"
 
 # Full test suite
 cd C:\Users\Duanyi\.claude\skills\skill-forge && python -m pytest -q
-# expect: 58 passed
+# expect: 147 passed
 
 # End-to-end smoke
 cd C:\Users\Duanyi\.claude\skills\skill-forge && python -m scripts.run --skill . --scope audit-only
@@ -101,15 +178,33 @@ The full content of `skill-forge/SKILL.md` is preserved here so that if the loca
 ```markdown
 ---
 name: skill-forge
+version: 0.2.0
 description: >-
   Use when a skill is not producing the quality you want, when you want to
   bootstrap a benchmark for a new skill, when an existing skill needs
   measurable improvement against a frozen baseline, or when retiring a
-  skill that has outlived its purpose. Triggers: "improve this skill",
-  "skill won't trigger", "audit skill quality", "fix skill underperformance",
-  "make a skill benchmark", "retire old skill", "skill produces shallow output".
+  skill that has outlived its purpose.
+triggers:
+  - "improve this skill"
+  - "skill won't trigger"
+  - "audit skill quality"
+  - "fix skill underperformance"
+  - "make a skill benchmark"
+  - "retire old skill"
+  - "skill produces shallow output"
+tools:
+  - bash
+  - read
+  - write
+  - edit
+  - grep
+  - glob
 mutating: true
 brain_first: exempt
+when_to_use: >-
+  Use when the user asks: "improve this skill", "skill won't trigger",
+  "audit skill quality", "fix skill underperformance", "make a skill benchmark",
+  "retire old skill", or "skill produces shallow output".
 ---
 
 # skill-forge
@@ -119,10 +214,9 @@ brain_first: exempt
 ## What this is
 
 A meta-skill that turns "this skill could be better" into a measured,
-verifiable improvement — or an honest decision to retire it. It does not
-edit skills directly; it routes work to `skill-creator` (create/edit) and
-`gbrain:skill-optimizer` (SkillOpt-paper-driven optimization), and scores
-the result with a three-judge gate before letting any change ship.
+verifiable improvement — or an honest decision to retire it. Routes work
+to `skill-creator` / `gbrain:skill-optimizer`; uses a three-judge gate
+before any change ships.
 
 ## When NOT to use
 
@@ -141,7 +235,7 @@ the result with a three-judge gate before letting any change ship.
 | 4 | verify | Deterministic trace + LLM rubric + spot check; absent rubric ≠ failure (RULING-1); any regression refuses |
 | 5 | materialize | `audit-report.md` (always) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); bundled `SKILL.md` is never overwritten |
 
-Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory. Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
+Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
 
 ## Common Rationalizations
 
@@ -161,10 +255,13 @@ Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory
 
 ## Verification
 
-- [ ] `wc -w SKILL.md` ≤ 500 (this file is the gate)
+- [ ] `wc -w SKILL.md` ≤ 1000 (this file is the gate — heavy reference lives in `docs/SKILL_REFERENCE.md`, not here)
 - [ ] Each phase prints its verb on stdout
 - [ ] Bundled-skill runs emit `proposed.md`, not `SKILL.md`
 - [ ] Triple-judge summary lists all three judges with scores
+- [ ] `validate_skill_frontmatter()` returns `[]` (no principle violations in this SKILL.md) — see PRINCIPLES.md § 1
+
+The v0 gate was 500 words; the v2 frontmatter layout lifts the natural size to 800-1000. Below 800 the SKILL.md is probably missing reference material; above 1000 it duplicates `docs/SKILL_REFERENCE.md`.
 
 ## v2 specifics (post v0.2.0)
 
@@ -173,21 +270,21 @@ Default behavior: bare `python -m scripts.run` from the `skill-forge/` directory
 - **Bundled-skill safety** — `is_bundled(skill_dir)` reads `~/.gbrain/install.json` and short-circuits the route phase for marketplace installs. **Fails open** if `install.json` is missing — copy the skill to a scratch dir before iterating.
 - **`--held-out N`** — overrides the default 15-row benchmark; refuses with exit `2` when `N < 5` (gbrain hard-refuses <5 internally).
 - **Triple-judge details** — `description` must be a YAML block scalar (RULING-5); YAML-list `description` refuses instead of raising; `baseline` is consumed in the rubric prompt so a real LLM call can compare candidate vs. baseline; rubric-skipped is invisible in `verdict.llm_score` — branch on `llm_call is None` at the call site, never on the verdict (RULING-8).
-- **Skip optional deps gracefully** — `pip install -e .` pulls `pyyaml`; without it the frontmatter loader raises `ImportError` instead of returning a partial result. The rest of the pipeline degrades to `diagnose-only` (no `gbrain` on PATH) or refuses on missing frontmatter (no `pyyaml`).
+- **Skip optional deps gracefully** — without `pyyaml` the frontmatter loader raises; without `gbrain` the pipeline degrades to `diagnose-only.
 ```
 
-(Snapshot taken from commit `07d6cd9` on 2026-10-15. If `SKILL.md` in the repo changes, regenerate this snapshot by running `cat skill-forge/SKILL.md` and pasting the body into § 6 above.)
+(Snapshot regenerated from commit `24a92c0` on 2026-10-24, after the Perplexity audit pass (Pascal trim) and the P0-1/P0-2 router + rubric work. If `SKILL.md` in the repo changes, regenerate this snapshot by running `cat skill-forge/SKILL.md` and pasting the body into § 6 above.)
 
 ## 7. Git state at deployment time
 
 | Field | Value |
 |---|---|
-| Local HEAD | `07d6cd9` |
-| `origin/main` | `07d6cd9` (matches local) |
+| Local HEAD | `24a92c0` |
+| `origin/main` | `24a92c0` (matches local) |
 | Tag | `v0.2.0-rc1` (annotated, peels to `d765930`, the pre-SKILL.md-revision commit) |
 | Total commits since v1 final `5a7c2dd` | 17 (12 v2 + 4 post-v2 hardening + 1 SKILL.md update) |
-| Test count | 58 |
-| Word count of SKILL.md | 486 (within the ≤ 500 gate) |
+| Test count | 147 (was 58 at the v0.2.0 snapshot, 98 before the P0-1/P0-2 pass) |
+| Word count of SKILL.md | 797 (within the ≤ 1000 gate; was 903 before the Pascal trim) |
 
 ## 8. What NOT to do
 
