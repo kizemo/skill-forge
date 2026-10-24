@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Sequence
 from scripts.audit import audit
@@ -11,9 +12,15 @@ from scripts._lib.baseline_log import race, write_baseline
 from scripts._lib.bundle import is_bundled
 from scripts._lib.sha import content_hash
 from scripts.judge_triple import judge
-from scripts.router import RouteResult, route
+from scripts.router import DEFAULT_MAX_USD, DEFAULT_SPLIT, RouteResult, route
 
 PHASES = ("audit", "scope", "bootstrap", "forward", "verify", "materialize")
+
+# P0-1: the gbrain subprocess runs against an isolated brain by default so a
+# skillopt run never touches the user's real ~/.gbrain (which may be locked
+# by a live `gbrain serve`). Lives under the system temp dir per the
+# host's temp convention. Override with --gbrain-home.
+DEFAULT_GBRAIN_HOME = Path(tempfile.gettempdir()) / "skill-forge-gbrain-home"
 
 # Per Perplexity's gotcha flywheel: when the audit returns a non-trivial
 # root_cause, the audit-report.md should suggest 1-2 gotchas the author
@@ -118,6 +125,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     # the constraint up front instead of generating an unusable benchmark.
     p.add_argument("--held-out", type=int, default=None,
                    help="Number of held-out tasks (refuses if <5).")
+    # P0-1: forward-phase levers. gbrain skillopt's own defaults are wrong
+    # for skill-forge's 15-row benchmark (split 4:1:5 refuses at D_sel < 5)
+    # and the spend cap should be visible in the argv, not implicit.
+    p.add_argument("--split", default=DEFAULT_SPLIT,
+                   help=f"TRAIN:SEL:TEST split for gbrain skillopt (default {DEFAULT_SPLIT}; "
+                        f"gbrain refuses when the selection set has < 5 rows).")
+    p.add_argument("--max-usd", default=DEFAULT_MAX_USD,
+                   help=f"Spend cap for the gbrain forward (default {DEFAULT_MAX_USD}; "
+                        f"pass 'off' to disable).")
+    p.add_argument("--gbrain-home", type=Path, default=None,
+                   help="Isolated GBRAIN_HOME for the gbrain subprocess "
+                        f"(default: {DEFAULT_GBRAIN_HOME}). Pass 'inherit' to use the parent's.")
     args = p.parse_args(argv)
     # v2-T8: early guard, before the skill_dir existence check and before any
     # phase runs — the pipeline is never entered for N<5.
@@ -155,8 +174,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     # RULING-9: route()'s subprocess.run is unguarded (router.py ~L23/L27), so
     # TimeoutExpired / OSError / FileNotFoundError propagate. Wrap the call site and
     # degrade to diagnose-only rather than changing the 6-phase / rc contract.
+    # P0-1: the forward now carries the Phase 2 benchmark, an explicit
+    # split + spend cap, and an isolated GBRAIN_HOME. Without the benchmark
+    # gbrain has nothing to optimize against (its CLI makes a benchmark
+    # REQUIRED); without an explicit split its default 4:1:5 refuses on a
+    # 15-row benchmark at D_sel < 5; without isolation the run writes into
+    # the user's real ~/.gbrain.
+    gbrain_home = args.gbrain_home if args.gbrain_home is not None else DEFAULT_GBRAIN_HOME
     try:
-        rresult = route(skill_dir, args.scope, report)
+        rresult = route(
+            skill_dir, args.scope, report,
+            benchmark=bench,
+            split=args.split,
+            max_usd=args.max_usd,
+            gbrain_home=gbrain_home,
+        )
     except (OSError, subprocess.SubprocessError) as e:
         rresult = RouteResult("diagnose-only", 2, str(e), degraded=True)
     _emit(3, "forward", f"target={rresult.forwarded_to} degraded={rresult.degraded} exit={rresult.exit_code} reason={rresult.reason or '—'}")

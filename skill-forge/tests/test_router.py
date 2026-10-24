@@ -225,3 +225,163 @@ def test_legacy_shim_refuses_when_skill_dir_missing(monkeypatch, capsys):
     err = capsys.readouterr().err
     assert "[FATAL]" in err
     assert "SKILL_DIR" in err or "skill_dir" in err
+
+
+# ---------------------------------------------------------------------------
+# P0-1 (2026-10-15): router forwards the benchmark / split / budget to
+# gbrain skillopt, and isolates GBRAIN_HOME from the user's real brain.
+#
+# Evidence for each defect (gbrain skillopt --help, v0.60.287.0):
+#   - benchmark is REQUIRED: "Required (one of): --benchmark <path> |
+#     --bootstrap-from-skill | --bootstrap-from-routing"
+#   - "--split TRAIN:SEL:TEST  Default '4:1:5'; refuses if D_sel < 5"
+#     -> 15 rows at 4:1:5 yields D_sel < 5, so the run refuses. gbrain's own
+#     documented 15-task recipe is "--split 1:1:1" (5 train / 5 sel / 5 test).
+#   - "--max-usd N|off  Hard cap. Default 5.00" -> make the cap explicit.
+#   - GBRAIN_HOME is honoured by gbrain (it creates <GBRAIN_HOME>/.gbrain/),
+#     and the user's real brain may be locked by a live `gbrain serve`.
+# ---------------------------------------------------------------------------
+
+
+def _capture_route(tmp_path, monkeypatch, **kwargs):
+    """Run route() with a fake gbrain on PATH; return (cmd, env, result)."""
+    skill = tmp_path / "x"
+    skill.mkdir()
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append({"cmd": list(cmd), "env": kw.get("env")})
+        class R:
+            returncode = 0
+            stdout = b"ok"
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    r = route(skill, "improve", AuditReport("prompt", 0.8, [], "improve"), **kwargs)
+    return seen, r
+
+
+def test_route_passes_benchmark_path_to_gbrain(tmp_path, monkeypatch):
+    """P0-1 defect 1: Phase 2 generates a 15-row benchmark but the router
+    never told gbrain about it. gbrain's CLI requires one of
+    --benchmark/--bootstrap-from-*, so the forward was guaranteed to fail
+    with a missing-benchmark error."""
+    bench = tmp_path / "skillopt-benchmark.jsonl"
+    bench.write_text('{"task_id":"t-001"}\n', encoding="utf-8")
+    seen, r = _capture_route(tmp_path, monkeypatch, benchmark=bench)
+    assert r.forwarded_to == "gbrain-skillopt"
+    cmd = seen[-1]["cmd"]
+    assert "--benchmark" in cmd, cmd
+    assert str(bench) in cmd, cmd
+
+
+def test_route_omits_benchmark_flag_when_no_benchmark_given(tmp_path, monkeypatch):
+    """No benchmark -> no --benchmark flag (gbrain would refuse, but we
+    must not pass a dangling flag with a fabricated path)."""
+    seen, r = _capture_route(tmp_path, monkeypatch)
+    assert "--benchmark" not in seen[-1]["cmd"]
+
+
+def test_route_passes_split_to_gbrain(tmp_path, monkeypatch):
+    """P0-1 defect 2: the default split 4:1:5 yields D_sel < 5 on a
+    15-row benchmark and gbrain refuses. The router must pass an explicit
+    split."""
+    seen, r = _capture_route(tmp_path, monkeypatch, split="1:1:1")
+    cmd = seen[-1]["cmd"]
+    assert "--split" in cmd, cmd
+    assert "1:1:1" in cmd, cmd
+
+
+def test_route_default_split_is_the_15_task_safe_recipe(tmp_path, monkeypatch):
+    """The DEFAULT split must be one that satisfies gbrain's D_sel >= 5
+    gate for the default 15-row benchmark. gbrain's own docs pair
+    '--bootstrap-reviewed' with '--split 1:1:1' for a 15-task benchmark."""
+    seen, r = _capture_route(tmp_path, monkeypatch)
+    cmd = seen[-1]["cmd"]
+    assert "--split" in cmd, cmd
+    i = cmd.index("--split")
+    assert cmd[i + 1] == "1:1:1", cmd
+
+
+def test_route_passes_max_usd_to_gbrain(tmp_path, monkeypatch):
+    """P0-1 defect 2b: the spend cap must be explicit and auditable in the
+    argv, not left to an invisible default."""
+    seen, r = _capture_route(tmp_path, monkeypatch, max_usd="2.50")
+    cmd = seen[-1]["cmd"]
+    assert "--max-usd" in cmd, cmd
+    assert "2.50" in cmd, cmd
+
+
+def test_route_isolates_gbrain_home_via_env(tmp_path, monkeypatch):
+    """P0-1 defect 3: the gbrain subprocess must not touch the user's real
+    ~/.gbrain. GBRAIN_HOME is the documented isolation lever (gbrain
+    creates <GBRAIN_HOME>/.gbrain/ and reads its brain from there)."""
+    home = tmp_path / "isolated-gbrain-home"
+    home.mkdir()
+    (home / ".gbrain").mkdir()
+    (home / ".gbrain" / "config.json").write_text("{}", encoding="utf-8")
+    seen, r = _capture_route(tmp_path, monkeypatch, gbrain_home=home)
+    env = seen[-1]["env"]
+    assert env is not None, "the gbrain subprocess must receive an explicit env"
+    assert env["GBRAIN_HOME"] == str(home)
+
+
+def test_route_leaves_gbrain_home_untouched_when_not_requested(tmp_path, monkeypatch):
+    """No gbrain_home requested -> the child inherits the parent env; we
+    must not silently rewrite GBRAIN_HOME."""
+    seen, r = _capture_route(tmp_path, monkeypatch)
+    env = seen[-1]["env"]
+    assert env is None or "GBRAIN_HOME" not in env
+
+
+def test_route_initialises_brain_in_isolated_home_when_missing(tmp_path, monkeypatch):
+    """An isolated GBRAIN_HOME starts empty; gbrain then refuses with
+    `Error [no_brain]: No brain configured. Run: gbrain init`. The router
+    must bootstrap the isolated brain once (`gbrain init --pglite
+    --no-embedding`) instead of handing gbrain a guaranteed-to-fail home."""
+    home = tmp_path / "isolated-gbrain-home"
+    home.mkdir()
+    calls: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        calls.append({"cmd": list(cmd), "env": kw.get("env")})
+        if "init" in cmd:
+            # Simulate gbrain init writing the brain config.
+            (home / ".gbrain").mkdir(parents=True, exist_ok=True)
+            (home / ".gbrain" / "config.json").write_text(
+                '{"engine":"pglite"}', encoding="utf-8"
+            )
+        class R:
+            returncode = 0
+            stdout = b"ok"
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None)
+    monkeypatch.setattr("subprocess.run", fake_run)
+    skill = tmp_path / "x"
+    skill.mkdir()
+    r = route(skill, "improve", AuditReport("prompt", 0.8, [], "improve"), gbrain_home=home)
+    init_calls = [c for c in calls if "init" in c["cmd"]]
+    assert init_calls, f"expected a gbrain init call, saw {[c['cmd'] for c in calls]!r}"
+    init_cmd = init_calls[0]["cmd"]
+    assert "--pglite" in init_cmd, init_cmd
+    assert "--no-embedding" in init_cmd, init_cmd
+    # The init must itself run against the isolated home.
+    assert init_calls[0]["env"]["GBRAIN_HOME"] == str(home)
+    # And the skillopt call must still have happened, after the init.
+    skillopt_calls = [c for c in calls if "skillopt" in c["cmd"]]
+    assert skillopt_calls, calls
+    assert calls.index(init_calls[0]) < calls.index(skillopt_calls[0])
+
+
+def test_route_skips_init_when_isolated_home_already_has_brain(tmp_path, monkeypatch):
+    """A warm isolated home must not be re-initialised on every run
+    (gbrain init costs ~14s)."""
+    home = tmp_path / "isolated-gbrain-home"
+    (home / ".gbrain").mkdir(parents=True)
+    (home / ".gbrain" / "config.json").write_text('{"engine":"pglite"}', encoding="utf-8")
+    seen, r = _capture_route(tmp_path, monkeypatch, gbrain_home=home)
+    assert not any("init" in c["cmd"] for c in seen), [c["cmd"] for c in seen]

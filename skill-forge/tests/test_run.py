@@ -429,3 +429,107 @@ def test_run_end_to_end_emits_suggested_gotchas_for_routing(tmp_path, monkeypatc
     main(["--skill", str(skill), "--scope", "audit-only"])
     report = (skill / "audit-report.md").read_text(encoding="utf-8")
     assert "## Suggested gotchas" in report
+
+
+# --- P0-1: Phase 3 forwards benchmark / split / max-usd and isolates GBRAIN_HOME ---
+
+def test_run_passes_benchmark_split_and_max_usd_to_gbrain(tmp_path, monkeypatch):
+    """P0-1: the Phase 2 benchmark must actually reach gbrain, and the
+    split + spend cap must be explicit in the argv. gbrain's CLI makes a
+    benchmark REQUIRED and refuses the default 4:1:5 split at D_sel < 5.
+    """
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append({"cmd": list(cmd), "env": kw.get("env")})
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None
+    )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main(["--skill", str(skill), "--scope", "improve", "--gbrain-home", str(tmp_path / "gh")])
+    skillopt = [c for c in seen if "skillopt" in c["cmd"]]
+    assert skillopt, [c["cmd"] for c in seen]
+    cmd = skillopt[0]["cmd"]
+    assert "--benchmark" in cmd, cmd
+    assert any("skillopt-benchmark.jsonl" in a for a in cmd), cmd
+    assert "--split" in cmd, cmd
+    assert "--max-usd" in cmd, cmd
+
+
+def test_run_isolates_gbrain_home_by_default(tmp_path, monkeypatch):
+    """P0-1 defect 3: by default the gbrain subprocess must NOT inherit
+    the user's real ~/.gbrain — it gets an isolated GBRAIN_HOME."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append({"cmd": list(cmd), "env": kw.get("env")})
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None
+    )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main(["--skill", str(skill), "--scope", "improve"])
+    skillopt = [c for c in seen if "skillopt" in c["cmd"]]
+    assert skillopt, [c["cmd"] for c in seen]
+    env = skillopt[0]["env"]
+    assert env is not None, "gbrain subprocess must receive an explicit env"
+    assert "GBRAIN_HOME" in env, env
+    # And it must NOT be the user's real ~/.gbrain.
+    assert env["GBRAIN_HOME"] != str(Path.home() / ".gbrain"), env
+
+
+def test_run_accepts_split_and_max_usd_cli_flags(tmp_path, monkeypatch):
+    """P0-1: --split and --max-usd are user-visible levers on the forward."""
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: Use when A or B with symptom S.\n---\n# body\n",
+        encoding="utf-8",
+    )
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append({"cmd": list(cmd), "env": kw.get("env")})
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None
+    )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    main([
+        "--skill", str(skill), "--scope", "improve",
+        "--split", "2:1:2", "--max-usd", "1.25",
+        "--gbrain-home", str(tmp_path / "gh"),
+    ])
+    skillopt = [c for c in seen if "skillopt" in c["cmd"]]
+    assert skillopt, [c["cmd"] for c in seen]
+    cmd = skillopt[0]["cmd"]
+    assert "2:1:2" in cmd, cmd
+    assert "1.25" in cmd, cmd
