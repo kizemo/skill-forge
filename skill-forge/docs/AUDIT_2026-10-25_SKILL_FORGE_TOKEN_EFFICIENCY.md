@@ -235,6 +235,42 @@ the first thing the audit prints and the last thing the report shows.
 
 ---
 
+## 7. GitHub comparison: Anthropic's own `skill-creator` (and what it does that skill-forge does not)
+
+The canonical spec now lives at **https://agentskills.io/specification**
+(`anthropics/skills` → `spec/agent-skills-spec.md` is a pointer to it). The
+authoritative comparison is Anthropic's own `skill-creator` SKILL.md, which
+states the length and hierarchy rules skill-forge does not:
+
+| Anthropic `skill-creator` | skill-forge today |
+|---|---|
+| "**Metadata** (name + description) - Always in context (~100 words)" — **two fields** | `description` + `triggers:` + `when_to_use:` — three homes for one phrase set |
+| "**SKILL.md body** - In context whenever skill triggers (**<500 lines** ideal)" | `wc -w ≤ 1000` — a word count, not a token count |
+| "if you're approaching this limit, **add an additional layer of hierarchy along with clear pointers** about where the model … should go next" | no hierarchy guidance, no pointer/read-condition table |
+| "For large reference files (**>300 lines**), include a **table of contents**" | no such convention |
+| The benchmark harness records **`total_tokens`** per run into `timing.json`, and emits `benchmark.json` with **`pass_rate, time, and tokens`** per configuration, mean ± stddev and the delta | the judge scores **content only** — there is no token axis anywhere in Phase 4 |
+
+Two of these are directly load-bearing for the user's report:
+
+1. **Anthropic's metadata is two fields; skill-forge's is three.** The extra
+   field is not free — it is paid on every session by every user, and
+   skill-forge's own frontmatter already duplicates 7/7 phrases between
+   `when_to_use` and `triggers`.
+2. **Anthropic's own skill-authoring harness measures `total_tokens` as a
+   first-class output** and reports it per configuration next to `pass_rate`.
+   skill-forge's benchmark produces `pass_rate` with no cost column at all —
+   which is precisely why a 5,500-token body could pass every gate and ship.
+   The cheapest possible fix for the user's complaint is to add the cost
+   column Anthropic already has.
+
+Other repos surveyed (`skalesapp/skales` 2212★, `skillmds/skillmd` 190★,
+`TerminalSkills/skills` 179★, `Berserk-hub150/skillhawk` 66★,
+`tmchow/agent-skills` 65★, `royalpinto007/awesome-agent-skills` 5★) are
+tooling and collections rather than comparable authoring harnesses; the
+Anthropic reference above is the one with an enforceable spec.
+
+---
+
 ## Appendix — the measurements
 
 ```
