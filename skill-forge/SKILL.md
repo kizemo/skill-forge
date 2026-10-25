@@ -50,12 +50,16 @@ before any change ships.
 
 | Phase | Verb | What happens |
 |---|---|---|
-| 0 | audit | Static scan the target SKILL.md → root cause: prompt / routing / contract / missing / other |
+| 0 | audit | Static scan the target SKILL.md → root cause: prompt / routing / contract / missing / other; prints the measured index/load token cost |
 | 1 | scope | You pick: create / improve / audit-only / retire |
 | 2 | bootstrap | Generate 15 benchmark rows by default (RULING-7) — override with `--held-out N`; refuses if `N < 5` — plus sentinel |
-| 3 | forward | `gbrain skillopt X --bootstrap-reviewed` (or `skill-creator/init_skill.py` shim for create) |
-| 4 | verify | Deterministic trace + LLM rubric + spot check; absent rubric ≠ failure (RULING-1); any regression refuses |
-| 5 | materialize | `audit-report.md` (always) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); bundled `SKILL.md` is never overwritten |
+| 3 | forward | `gbrain skillopt X --benchmark … --split 1:1:1 --max-usd 5.00` in an isolated `GBRAIN_HOME` |
+| 4 | verify | Deterministic trace + LLM rubric + spot check against a REAL baseline (the pre-run snapshot); absent rubric ≠ failure (RULING-1); any regression refuses |
+| 5 | materialize | `audit-report.md` (always, with a `## Cost` section and a `## Change` diff) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); bundled `SKILL.md` is never overwritten |
+
+**Authoring** is a separate lane: `--scope create --spec <file.json>` generates a
+new skill that is already inside the token budget, with its read-conditions table
+and gotchas in place — the rubric applied at generation time, not reported afterwards.
 
 Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` only; the bundled `SKILL.md` is never touched.
 
@@ -82,6 +86,8 @@ Bundled skills (one registered in `~/.gbrain/install.json`) get `proposed.md` on
 - [ ] Bundled-skill runs emit `proposed.md`, not `SKILL.md`
 - [ ] Triple-judge summary lists all three judges with scores
 - [ ] `validate_skill_frontmatter()` returns `[]` (no principle violations in this SKILL.md) — see PRINCIPLES.md § 1
+- [ ] `audit-report.md` shows a `## Cost` section — index ≤ ~100 tok, load ≤ ~5,000 tok
+- [ ] `audit-report.md` shows a `## Change` diff when the forward phase edited the skill
 
 The v0 gate was 500 words; the v2 frontmatter layout lifts the natural size to 800-1000. Below 800 the SKILL.md is probably missing reference material; above 1000 it duplicates `docs/SKILL_REFERENCE.md`.
 
