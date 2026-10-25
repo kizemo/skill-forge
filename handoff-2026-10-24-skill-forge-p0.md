@@ -91,28 +91,41 @@ no gate.
 
 ---
 
-## 3. Open Concerns (NOT fixed — reviewer must rule)
+## 3. Open Concerns
 
-### C-1 · gbrain resolves the skill by NAME, not by path — **the forward still cannot complete**
+### C-1 · ~~gbrain resolves the skill by NAME, not by path~~ — **RESOLVED 2026-10-24, do not re-open as "unsolvable"**
+
+This Concern was **wrong**, and it was wrong because the discovery was incomplete: an
+earlier grep of `gbrain skillopt --help` for path-like flags missed `--skills-dir`.
+`--skills-dir <path>` is a **real, working** gbrain flag — the full pipeline runs with
+it (models banner, cost estimate `$3.01 (cap: $5.00)`, "Dry run: no model calls made").
+
+The only problem was **discoverability**, which is now reported upstream in
+`skill-forge/docs/GBRAIN_UPSTREAM_FEEDBACK_2026-10-24.md`:
+- `--skills-dir` appears **0 times** in `gbrain skillopt --help`
+- the `NoSkill` error ("Cannot find SKILL.md for 'x' at <root>/skills/x/SKILL.md")
+  points only at `gbrain skillify scaffold x` and never mentions `--skills-dir`,
+  while the sibling error ("cannot find skills directory") *does*
+- `GBRAIN_SKILLS_DIR` is honored but also undocumented
+
+**Fix landed here (commit `see git log`):** `route()` gained a `skills_dir` parameter and
+passes `--skills-dir`; `run.py` defaults it to `skill_dir.parent` (the directory that
+contains `<skill_dir.name>/SKILL.md`) and exposes a `--skills-dir` override.
+
+**End-to-end proof** (real gbrain, isolated brain, `improve` scope):
 
 ```
-NoSkill: Cannot find SKILL.md for 'C:/Temp/sf-probe/skill'
-         at C:\Users\Duanyi\gbrain-latest\skills\C:\Temp\sf-probe\skill\SKILL.md
+[phase 0] audit: root_cause=prompt scope=improve
+[phase 1] scope: user chose improve
+[phase 2] bootstrap: benchmark=C:\Temp\sf-e2e\skills\probe\skillopt-benchmark.jsonl
+[phase 3] forward: target=gbrain-skillopt degraded=False exit=0   <-- was exit=2 (NoSkill)
+[phase 4] verify: det=True rubric-skipped spot=None accept=True
+[phase 5] materialize: wrote best.md
 ```
 
-`gbrain-latest` is a gbrain source checkout; its `skills/` tree is where gbrain looks.
-`GBRAIN_HOME` isolates the **brain** state (pglite, config.json) but **not** the skills
-tree. A target skill that is not already in gbrain's tree still fails.
-
-Fixing it needs one of:
-- staging the target skill into `<gbrain-latest>/skills/<name>/` (mutates the user's
-  gbrain checkout — against the project's bundled-skill-safety doctrine), or
-- a gbrain API for arbitrary skill paths.
-
-The user reported that another project has a **`gbrain_forward.py`** that is an
-equivalent replacement and already works. **That file is not on this machine** —
-searched `F:/soft` (full), `C:/Users/Duanyi` (full depth), `E:/` (depth 5), plus
-`~/.claude/plugins`. Get its path and port the approach.
+The other project's `gbrain_forward.py` was never needed — it is still not on this
+machine (searched `F:/soft` full, `C:/Users/Duanyi` full depth, `E:/` depth 5,
+`~/.claude/plugins`). The flag was enough.
 
 ### C-2 · Phase 3 still passes `--dry-run`
 

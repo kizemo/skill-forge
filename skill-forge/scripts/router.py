@@ -63,7 +63,8 @@ def route(skill_dir: Path, scope: str, report: AuditReport, *, gbrain_bin: str =
           benchmark: Path | None = None,
           split: str | None = DEFAULT_SPLIT,
           max_usd: str | None = DEFAULT_MAX_USD,
-          gbrain_home: Path | None = None) -> RouteResult:
+          gbrain_home: Path | None = None,
+          skills_dir: Path | None = None) -> RouteResult:
     if scope == "retire":
         return RouteResult("diagnose-only", 0, "retire: no forwarding", degraded=True)
     # v2-T4: bundled-skill safety — never forward to gbrain or the shim when
@@ -93,6 +94,16 @@ def route(skill_dir: Path, scope: str, report: AuditReport, *, gbrain_bin: str =
             cmd += ["--split", split]
         if max_usd:
             cmd += ["--max-usd", str(max_usd)]
+        if skills_dir is not None:
+            # P0-1 follow-up: gbrain addresses the skill as
+            # `<skills-dir>/<name>/SKILL.md` — it takes a NAME, not a path.
+            # Without this flag it looks in the installed gbrain skills tree
+            # and refuses with `NoSkill`, which is what stopped the forward
+            # phase from ever completing. `--skills-dir` is a real, working
+            # gbrain flag (verified: the full pipeline runs with it) but it
+            # is absent from `gbrain skillopt --help` and from the NoSkill
+            # error message — see docs/GBRAIN_UPSTREAM_FEEDBACK_2026-10-24.md.
+            cmd += ["--skills-dir", str(skills_dir)]
         env: dict[str, str] | None = None
         if gbrain_home is not None:
             # P0-1 defect 3: isolate the child's brain from the user's real

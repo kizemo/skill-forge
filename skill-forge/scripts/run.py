@@ -158,6 +158,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                    help="How the judge is reached: 'http' uses the ambient "
                         "Anthropic-compatible endpoint, 'script' uses the llm-call "
                         "script, 'auto' prefers http and falls back to script.")
+    # P0-1 follow-up: gbrain addresses the skill as `<skills-dir>/<name>/SKILL.md`.
+    # The default is the skill's own parent directory, which contains
+    # `<skill_dir.name>/SKILL.md`.
+    p.add_argument("--skills-dir", type=Path, default=None,
+                   help="Directory that contains the skill dir, passed to gbrain as "
+                        "--skills-dir (default: the skill's parent directory).")
     args = p.parse_args(argv)
     # v2-T8: early guard, before the skill_dir existence check and before any
     # phase runs — the pipeline is never entered for N<5.
@@ -202,6 +208,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     # 15-row benchmark at D_sel < 5; without isolation the run writes into
     # the user's real ~/.gbrain.
     gbrain_home = args.gbrain_home if args.gbrain_home is not None else DEFAULT_GBRAIN_HOME
+    skills_dir = args.skills_dir if args.skills_dir is not None else skill_dir.parent
     try:
         rresult = route(
             skill_dir, args.scope, report,
@@ -209,6 +216,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             split=args.split,
             max_usd=args.max_usd,
             gbrain_home=gbrain_home,
+            skills_dir=skills_dir,
         )
     except (OSError, subprocess.SubprocessError) as e:
         rresult = RouteResult("diagnose-only", 2, str(e), degraded=True)

@@ -385,3 +385,51 @@ def test_route_skips_init_when_isolated_home_already_has_brain(tmp_path, monkeyp
     (home / ".gbrain" / "config.json").write_text('{"engine":"pglite"}', encoding="utf-8")
     seen, r = _capture_route(tmp_path, monkeypatch, gbrain_home=home)
     assert not any("init" in c["cmd"] for c in seen), [c["cmd"] for c in seen]
+
+
+def test_route_passes_skills_dir_to_gbrain(tmp_path, monkeypatch):
+    """P0-1 follow-up: gbrain resolves the skill as
+    `<skills-dir>/<name>/SKILL.md`. It takes a NAME, not a path — with no
+    --skills-dir it looks in the installed gbrain skills tree and refuses
+    with NoSkill, which is the blocker that stopped the forward phase
+    from ever completing.
+
+    `--skills-dir` is a real, working gbrain flag (verified: the full
+    pipeline runs with it) but it is absent from `gbrain skillopt --help`
+    and from the NoSkill error message. The router must pass the
+    directory that CONTAINS the skill dir."""
+    skill = tmp_path / "probe"
+    skill.mkdir()
+    seen: list[dict] = []
+
+    def fake_run(cmd, **kw):
+        seen.append({"cmd": list(cmd), "env": kw.get("env")})
+        class R:
+            returncode = 0
+            stdout = b"ok"
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "/usr/bin/gbrain" if name == "gbrain" else None
+    )
+    monkeypatch.setattr("subprocess.run", fake_run)
+    r = route(skill, "improve", AuditReport("prompt", 0.8, [], "improve"),
+              skills_dir=tmp_path)
+    assert r.forwarded_to == "gbrain-skillopt"
+    cmd = seen[-1]["cmd"]
+    assert "--skills-dir" in cmd, cmd
+    assert str(tmp_path) in cmd, cmd
+    # The skill is addressed by NAME, and the name must be the directory
+    # gbrain will look for under --skills-dir.
+    i = cmd.index("--skills-dir")
+    assert cmd[i + 1] == str(tmp_path), cmd
+    assert "probe" in cmd, cmd
+    assert str(skill) not in cmd, "the skill must be passed by name, not by path"
+
+
+def test_route_omits_skills_dir_when_not_given(tmp_path, monkeypatch):
+    """No skills_dir -> no --skills-dir flag (gbrain falls back to its own
+    resolution; we must not invent a path)."""
+    seen, r = _capture_route(tmp_path, monkeypatch)
+    assert "--skills-dir" not in seen[-1]["cmd"], seen[-1]["cmd"]

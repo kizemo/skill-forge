@@ -87,14 +87,26 @@ gbrain skillopt <name> --dry-run --bootstrap-reviewed \
 with `GBRAIN_HOME` set to the isolated home. Override with `--split`, `--max-usd`,
 `--gbrain-home`.
 
-**One residual blocker (Concern, 2026-10-24):** gbrain resolves `<skill-name>` against
-`<gbrain-latest>/skills/<name>/SKILL.md` — it takes a NAME, not a path, and
-`GBRAIN_HOME` isolates the brain state but not the skills tree. A target skill that is
-not already in gbrain's tree still fails with `NoSkill`. Fixing that needs either
-staging the skill into gbrain's tree (mutates the user's gbrain checkout) or a gbrain API
-for arbitrary paths. The other project's `gbrain_forward.py` reportedly does this and
-already works, but that file is not present on this machine (searched `F:/soft`,
-`C:/Users/Duanyi` at full depth, and `E:/` to depth 5).
+**Resolved 2026-10-24.** The blocker above was a *discoverability* problem, not a
+capability gap: gbrain resolves `<skill-name>` as `<skills-dir>/<name>/SKILL.md`, and
+`--skills-dir <path>` selects that root. The flag works (the whole pipeline runs with
+it) but it appears **0 times** in `gbrain skillopt --help`, and the `NoSkill` error
+points only at `gbrain skillify scaffold` — never at `--skills-dir`, while the sibling
+"cannot find skills directory" error does mention it. Reported upstream in
+`docs/GBRAIN_UPSTREAM_FEEDBACK_2026-10-24.md`.
+
+Phase 3 now issues (skill-forge side):
+
+```
+gbrain skillopt <name> \
+    --skills-dir <dir that contains <name>/SKILL.md> \
+    --benchmark <skill_dir>/skillopt-benchmark.jsonl \
+    --bootstrap-reviewed --split 1:1:1 --max-usd 5.00 --dry-run
+```
+
+`--skills-dir` defaults to the skill's parent directory; override with `--skills-dir`.
+Verified end-to-end against the real gbrain: `[phase 3] forward: target=gbrain-skillopt
+degraded=False exit=0` (was `exit=2` / NoSkill).
 
 ---
 
