@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Sequence
 from scripts.audit import audit
+from scripts.author import author_skill, load_spec
 from scripts.bootstrap_benchmark import bootstrap as bootstrap_benchmark
 from scripts._lib.baseline_log import race, write_baseline
 from scripts._lib.bundle import is_bundled
@@ -214,6 +215,33 @@ def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bo
         return proposed  # newest written path, for the phase-5 marker
     return out
 
+def _run_author(args, skill_dir: Path) -> int:
+    """The WRITE lane: author a new skill from a spec.
+
+    Reports the measured cost of what it just produced, so the author
+    is held to the same standard as an audited skill.
+    """
+    try:
+        spec = load_spec(args.spec)
+    except (OSError, ValueError) as e:
+        print(f"error: invalid spec {args.spec}: {e}", file=sys.stderr)
+        return 2
+    try:
+        result = author_skill(spec, skill_dir)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    for w in result.warnings:
+        print(f"[WARN] {w}", file=sys.stderr)
+    c = result.cost
+    _emit(0, "author", f"wrote {result.skill_md_path.name} "
+                      f"index={c.index_tokens}tok load={c.load_tokens}tok "
+                      f"files={c.files_tokens}tok")
+    for rel in result.written:
+        _emit(1, "write", rel)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="skill-forge")
     p.add_argument("--skill", required=True, type=Path)
@@ -259,6 +287,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     p.add_argument("--skills-dir", type=Path, default=None,
                    help="Directory that contains the skill dir, passed to gbrain as "
                         "--skills-dir (default: the skill's parent directory).")
+    # P1: the WRITE lane. --scope create with a spec authors a NEW skill
+    # with skill-forge's own author, which applies the token rubric and
+    # the progressive-disclosure structure at generation time. This is
+    # the lane that replaces Anthropic's skill-creator for authoring.
+    p.add_argument("--spec", type=Path, default=None,
+                   help="Author spec (JSON) for --scope create: name, description, "
+                        "triggers, intent, gotchas, references, assets, scripts.")
     args = p.parse_args(argv)
     # v2-T8: early guard, before the skill_dir existence check and before any
     # phase runs — the pipeline is never entered for N<5.
@@ -270,6 +305,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2  # refuse, per v1's refuse code; race stays 3 (Default Decision #3)
     skill_dir: Path = args.skill
+    # P1: the WRITE lane short-circuits the audit/judge pipeline. A new
+    # skill has nothing to audit, and the author's own output IS the
+    # deliverable. The rubric is applied at generation time, so the
+    # result comes out inside the budgets rather than being reported
+    # as over-budget afterwards.
+    if args.scope == "create" and args.spec is not None:
+        return _run_author(args, skill_dir)
     if not skill_dir.exists():
         print(f"error: {skill_dir} does not exist", file=sys.stderr)
         return 2
