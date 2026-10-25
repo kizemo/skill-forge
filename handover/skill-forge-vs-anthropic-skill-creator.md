@@ -4,11 +4,17 @@
 
 ---
 
-## 结论
+## 结论(2026-10-25 更新:三件事已落地)
 
-**不放弃。但必须承认:两边有一块功能重叠,而 skill-forge 在那块上做得更差 —— 评测/benchmark 机制。**
+**不放弃 —— 而且现在可以「完全替代」。** 本轮已经补齐了 Anthropic skill-creator 的三块能力:
 
-正确动作不是二选一,是**把 Anthropic 的评测骨架搬进 skill-forge,保留 skill-forge 独有的三样东西**。
+| 能力 | Anthropic skill-creator | skill-forge 现状(2026-10-25) |
+|---|---|---|
+| **写**(authoring) | SKILL.md + agents/ + references/ + scripts/ 的写作配方 | ✅ **自建 author**(`scripts/author.py`):`--scope create --spec <json>`,**生成时即强制 token rubric 与渐进式披露结构**,产出自带 read-conditions 表、gotchas、通过自家 validator 零警告 |
+| **评**(benchmark) | assertion 式 grader + `total_tokens` + `pass_rate` 并列输出 | ✅ **token 成本轴**(`scripts/_lib/token_cost.py`):index/load/files 三层实测,进 `audit-report.md` 的 `## Cost` 段 + Phase 0 marker;**真基线 A/B**(`scripts/_lib/snapshot.py`):Phase 0 快照 before 态,Phase 4 用真基线判分,报告给 `## Change` 段 + diff |
+| **安全落地** | 手动 `cp -r` 快照 | ✅ **更严格**:bundled 只读、SHA 竞态 exit 3、绝不覆盖 `SKILL.md`、退出码 0/2/3 |
+
+**剩下唯一的差距:subagent 并行评测。** Anthropic 用同 turn 并发跑 with-skill / baseline 两组 subagent;skill-forge 是 CLI,不做 agent 编排 —— **但那本来也是调用方(agent)该做的事**,不是 CLI 的职责。
 
 理由一句话:**两者做的是流水线的一半。** Anthropic skill-creator 负责「**写**」,skill-forge 负责「**审 + 判 + 安全落地**」。你需要的正好是后者,但你借来的评测工具应该用前者的。
 
