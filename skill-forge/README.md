@@ -55,8 +55,8 @@ against, and half of it is checked in code:
 | to iterate a skill with a real before/after | `skill-forge --scope improve` |
 | a dashboard of eval results | Anthropic's `skill-creator` (it ships an HTML viewer) |
 
-→ **Full detail:** [the standards, the practices, and how skill-forge holds
-itself to them](docs/SKILL-DESIGN-GUIDE.md)
+→ **Full detail:** [the standards, the practices, the scoring sheet, and how
+skill-forge holds itself to them](docs/SKILL-DESIGN-GUIDE.md)
 
 ### What it is
 
@@ -237,8 +237,8 @@ skill-forge/
 │   ├── foundry-overview.md   # load on first trigger (~1700 tokens: install / CLI / Phase 5 / failure catalog)
 │   ├── foundry-details.md    # load only when troubleshooting (~5200 tokens: phases / gbrain / judges / safety)
 │   ├── foundry.md            # redirect (kept one release for backwards-compatible links)
-|   ├── SKILL-DESIGN-GUIDE.md   # the 8 standards + 5 practices in full (EN + 中文)
-│   ├── SKILL_DESIGN_RUBRIC.md  # the 14-row scoring sheet: what is automatable, what is process
+│   ├── SKILL-DESIGN-GUIDE.md   # THE standards doc: 8 standards + 5 practices + scoring sheet (EN + 中文)
+│   ├── SKILL_DESIGN_RUBRIC.md  # the source article's own ordering, and where each principle came from
 │   ├── AUDIT_2026-10-15_PERPLEXITY_PRINCIPLES.md  # the audit that produced the 7 gaps
 │   ├── SKILL_REFERENCE.md    # load-on-demand heavy reference (Output Format / Anti-Patterns / When it fails / Tools Used)
 │   └── DEPLOYMENT.md         # local Claude-skills deployment backup
@@ -358,7 +358,7 @@ The project is shipped without a license file; under default copyright, all righ
 | 带真实前后对照地迭代一个 skill | `skill-forge --scope improve` |
 | 评测结果的仪表盘 | Anthropic 的 `skill-creator`(它有 HTML viewer) |
 
-→ **完整版:** [标准、实践,以及 skill-forge 如何要求自己](docs/SKILL-DESIGN-GUIDE.md)
+→ **完整版:** [标准、实践、评分表,以及 skill-forge 如何要求自己](docs/SKILL-DESIGN-GUIDE.md)
 
 ### 这是什么
 
@@ -520,8 +520,8 @@ skill-forge/
 │   ├── foundry-overview.md   # 首次触发时加载(~1700 tokens:安装/CLI/Phase 5/失败目录)
 │   ├── foundry-details.md    # 仅在排错时加载(~5200 tokens:阶段细节/gbrain/判分器/安全)
 │   ├── foundry.md            # 跳转页(保留一个 release 周期以兼容老链接)
-|   ├── SKILL-DESIGN-GUIDE.md   # 8 条标准 + 5 条实践完整版(EN + 中文)
-│   ├── SKILL_DESIGN_RUBRIC.md  # 14 行评分表:哪些可自动化,哪些是流程
+│   ├── SKILL-DESIGN-GUIDE.md   # 标准类文档入口:8 条标准 + 5 条实践 + 评分表(EN + 中文)
+│   ├── SKILL_DESIGN_RUBRIC.md  # 原文自己的排序,以及每条原则的出处
 │   ├── AUDIT_2026-10-15_PERPLEXITY_PRINCIPLES.md  # 产生 7 个 gap 的审计
 │   ├── SKILL_REFERENCE.md    # 按需加载的重量级参考(Output Format / Anti-Patterns / When it fails / Tools Used)
 │   └── DEPLOYMENT.md         # 本地 Claude-skills 部署备查

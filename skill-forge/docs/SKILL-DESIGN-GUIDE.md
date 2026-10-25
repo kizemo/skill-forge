@@ -1,18 +1,22 @@
 # The good-skill guide — standards, practices, and how skill-forge holds itself to them
 
-**The full detail behind the README's 5-minute version.**
+**The full detail behind the README's 5-minute version — and the ONE place
+the standards are taught.**
 
-This document holds the long form of the two sections that used to live in
-`README.md`:
+## Which doc do I read?
 
-- **The 8 standards a good skill meets** — what each one means, why it
-  matters, and the practices that satisfy it.
-- **The 5 practices** — the process that keeps a skill good over time.
-- **How skill-forge follows its own standards** — the dogfooding table.
+| You want… | Read |
+|---|---|
+| the 8 standards, in full, with why-it-matters and practices | **this doc**, Part 1 |
+| the 5 practices that keep a skill good | **this doc**, Part 2 |
+| how skill-forge holds itself to its own standards | **this doc**, Part 3 |
+| which of the 14 checks are automated and which are process | **this doc**, *The scoring sheet* |
+| the rules the code actually enforces | [`PRINCIPLES.md`](PRINCIPLES.md) — the contract, cited by the validator |
+| the source article's own ordering, and where every principle came from | [`SKILL_DESIGN_RUBRIC.md`](SKILL_DESIGN_RUBRIC.md) — the provenance lens |
 
-The machine-readable scoring sheet (14 rows, marking which are automatable
-and which are process) lives in [`SKILL_DESIGN_RUBRIC.md`](SKILL_DESIGN_RUBRIC.md),
-and the principles skill-forge enforces are in [`PRINCIPLES.md`](PRINCIPLES.md).
+Three documents used to teach this subject; a reader could not tell which
+to open. This one is the entry point; the other two are now
+specialised views of it.
 
 ---
 
@@ -267,6 +271,31 @@ The package is a working demonstration of every rule it enforces. A skill that r
 
 ---
 
+### The scoring sheet — 14 rows: what is automatable, what is process
+
+| # | Standard | Automated? | Where it should be enforced |
+|---|---|---|---|
+| 1 | Index tier ≤ ~100 tokens | **yes** | validator: measure `name`+`description` tokens |
+| 2 | Description ≤ 50 words, "Load when"/"Use when", no trigger dump | **yes** | validator |
+| 3 | No trigger duplication across description / triggers / when_to_use | **yes** | validator |
+| 4 | Body ≤ ~5,000 tokens | **yes** | validator: token estimate, not `wc -w` |
+| 5 | Body states read-conditions for attached files | **yes** (heuristic) | validator: require a "Read … if …" table |
+| 6 | ≥ 1 gotcha / pitfalls section | **yes** | validator (exists) |
+| 7 | Conditional content lives in `references/` | **yes** (heuristic) | validator: long body with no `references/` → warn |
+| 8 | Pascal test per sentence | no | manual review |
+| 9 | Hero queries with positives + negatives | no | process: `references/hero-queries.md` |
+| 10 | Progressive-loading eval | no | process: benchmark must contain "read the file" tasks |
+| 11 | Description change protocol (1-2 words + baseline) | no | process |
+| 12 | Evals across model families | no | process |
+| 13 | "5% edge case → reference, not skill" | no | creation-time gate |
+| 14 | Multi-level nesting for huge domains | no | design guidance |
+
+**Rows 1-7 are the automatable half — and they are the half that actually
+governs token cost.** A validator that implements rows 1-7 catches the bloat
+before it ships.
+
+---
+
 <a id="zh"></a>
 
 ## 🇨🇳 中文
@@ -512,5 +541,29 @@ Baseline **只在**接受时重新钉:拒绝不能钉 SHA,否则会把 skill 锁
 | P5 | 不同的退出码 | `0` 接受 · `2` 拒绝 · `3` 竞态;在 `run.py::main()` 实现;3 个码都可被 CI 路由 |
 
 这个包是它强制执行的每条规则的工作示例。一个跑过 skill-forge 的 skill 出来时 8 条标准都过检,而这个元 skill 自己也过同一道杠。
+
+---
+
+### 评分表 —— 14 行:哪些可自动化,哪些是流程
+
+| # | 标准 | 可自动化? | 应该在哪被强制 |
+|---|---|---|---|
+| 1 | index 层 ≤ ~100 token | **是** | validator:量 `name`+`description` 的 token |
+| 2 | description ≤ 50 词,`Load when`/`Use when` 开头,无 trigger 清单 | **是** | validator |
+| 3 | description / triggers / when_to_use 三处无短语重复 | **是** | validator |
+| 4 | 正文 ≤ ~5,000 token | **是** | validator:按 token 估,不是 `wc -w` |
+| 5 | 正文给出附属文件的读取条件 | **是**(启发式) | validator:要求有 "Read … if …" 表 |
+| 6 | ≥ 1 个 gotcha / pitfalls 小节 | **是** | validator(已实现) |
+| 7 | 条件性内容放 `references/` | **是**(启发式) | validator:长正文无 `references/` → 报警 |
+| 8 | Pascal 测试,逐句过 | 否 | 人工 review |
+| 9 | hero query 含正例与负例 | 否 | 流程:`references/hero-queries.md` |
+| 10 | 渐进式加载型 eval | 否 | 流程:benchmark 必须含"必须读那个文件"的任务 |
+| 11 | description 改动协议(1-2 词 + 基线) | 否 | 流程 |
+| 12 | 跨模型族跑 eval | 否 | 流程 |
+| 13 | 「5% 边缘场景 → 做成 reference,不做 skill」 | 否 | 创建期闸门 |
+| 14 | 超大领域用多层嵌套 | 否 | 设计指引 |
+
+**第 1-7 行是可自动化的那一半 —— 也正是真正管住 token 成本的那一半。**
+把第 1-7 行实现出来的 validator,能在 skill 出厂前就抓住膨胀。
 
 ---

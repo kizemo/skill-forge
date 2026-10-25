@@ -3,7 +3,7 @@
 **Date:** 2026-10-25
 **Trigger:** user report — skills produced with skill-forge (`evidence-skill`,
 `sql-skill`) show large token-consumption spikes at invocation time.
-**Rubric:** `docs/SKILL_DESIGN_RUBRIC.md` (the 9 standards extracted from
+**Rubric:** `docs/SKILL-DESIGN-GUIDE.md` (the standards extracted from
 Perplexity's agent-skills guide, via book-to-skill).
 **Method:** measure first, then read the principles, then find the causal
 link back to skill-forge.

@@ -93,7 +93,7 @@ Anthropic 没有分类器 —— 它只告诉你"这次没通过"。skill-forge 
 
 ### ③ 规范 + 可自动化的子集
 
-skill-forge 有 14 条原则的成文规范(PRINCIPLES.md)+ 12 条标尺(SKILL_DESIGN_RUBRIC.md)+ 一个能自动检查其中 7 条的 validator。Anthropic 的规范更短(agentskills.io),但**没有把规范编译成检查器**。
+skill-forge 有 14 条原则的成文规范(PRINCIPLES.md)+ 14 条标尺(SKILL-DESIGN-GUIDE.md 的评分表)+ 一个能自动检查其中 7 条的 validator。Anthropic 的规范更短(agentskills.io),但**没有把规范编译成检查器**。
 
 ---
 
@@ -170,5 +170,5 @@ skill-forge 的对应改动:Phase 2 生成的 15 行 task 里,加一批**"不读
 
 - Anthropic `skill-creator`:`anthropics/skills` → `skills/skill-creator/SKILL.md`(篇幅约定、benchmark harness、grader 约定)
 - 规范正文:`https://agentskills.io/specification`
-- Perplexity《Designing, Refining, and Maintaining Agent Skills at Perplexity》→ 本仓库 `skill-forge/docs/SKILL_DESIGN_RUBRIC.md`(14 条标尺)
+- Perplexity《Designing, Refining, and Maintaining Agent Skills at Perplexity》→ 本仓库 `skill-forge/docs/SKILL-DESIGN-GUIDE.md`(标准 + 实践 + 评分表)
 - 本次审计:`skill-forge/docs/AUDIT_2026-10-25_SKILL_FORGE_TOKEN_EFFICIENCY.md`

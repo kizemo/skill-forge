@@ -1,9 +1,18 @@
-# Skill Design Rubric — the 9 standards from Perplexity's agent-skills guide
+# The Perplexity source, in the article's own order
+
+> **📍 The standards themselves live in
+> [`SKILL-DESIGN-GUIDE.md`](SKILL-DESIGN-GUIDE.md)** — the 8 standards in
+> full, the 5 practices, the dogfooding table, and the 14-row scoring sheet.
+> **This document is the provenance view**: the same material organised the
+> way the source article organises it, which is useful when you want to
+> check a principle against the original wording.
+>
+> The scoring sheet that used to live here has moved into the guide, as
+> *The scoring sheet* in both languages.
 
 **Source:** *Designing, Refining, and Maintaining Agent Skills at Perplexity*
 (research.perplexity.ai, 2026-05-01) + the zh-Hans translation.
 **Extraction method:** book-to-skill, Mode 3 (generate from prior analysis).
-**Purpose:** the scoring rubric `skill-forge` audits other skills against.
 
 Distilled with the author's own formulations preserved. Every number below is
 the article's, not an estimate.
@@ -173,25 +182,6 @@ skill-name/
 
 ---
 
-## 11. Scoring sheet (the rubric itself)
+## Scoring sheet
 
-| # | Standard | Automated? | Where it should be enforced |
-|---|---|---|---|
-| 1 | Index tier ≤ ~100 tokens | **yes** | validator: measure `name`+`description` tokens |
-| 2 | Description ≤ 50 words, "Load when"/"Use when", no trigger dump | **yes** | validator |
-| 3 | No trigger duplication across description / triggers / when_to_use | **yes** | validator |
-| 4 | Body ≤ ~5,000 tokens | **yes** | validator: token estimate, not `wc -w` |
-| 5 | Body states read-conditions for attached files | **yes** (heuristic) | validator: require a "Read … if …" table |
-| 6 | ≥ 1 gotcha / pitfalls section | **yes** | validator (exists) |
-| 7 | Conditional content lives in `references/` | **yes** (heuristic) | validator: long body with no `references/` → warn |
-| 8 | Pascal test per sentence | no | manual review |
-| 9 | Hero queries with positives + negatives | no | process: `references/hero-queries.md` |
-| 10 | Progressive-loading eval | no | process: benchmark must contain "read the file" tasks |
-| 11 | Description change protocol (1-2 words + baseline) | no | process |
-| 12 | Evals across model families | no | process |
-| 13 | "5% edge case → reference, not skill" | no | creation-time gate |
-| 14 | Multi-level nesting for huge domains | no | design guidance |
-
-**Rows 1-7 are the automatable half — and they are the half that actually
-governs token cost.** A validator that implements rows 1-7 catches the bloat
-before it ships.
+Moved to [`SKILL-DESIGN-GUIDE.md` → *The scoring sheet*](SKILL-DESIGN-GUIDE.md#the-scoring-sheet--14-rows-what-is-automatable-what-is-process) (EN) and its 中文 mirror.
