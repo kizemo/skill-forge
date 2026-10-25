@@ -13,6 +13,12 @@ from scripts._lib.bundle import is_bundled
 from scripts._lib.sha import content_hash
 from scripts.judge_triple import judge
 from scripts._lib.token_cost import measure_skill
+from scripts._lib.snapshot import (
+    clear_snapshot,
+    diff_bodies,
+    read_snapshot,
+    snapshot_skill,
+)
 from scripts._lib.llm_channel import (
     discover_rubric_script,
     http_channel_from_env,
@@ -127,6 +133,41 @@ def _cost_section(skill_dir: Path) -> str:
     return "\n".join(lines)
 
 
+def _change_section(skill_dir: Path) -> str:
+    """Render the before/after delta of SKILL.md.
+
+    This is what the real baseline buys: the report can now say WHAT
+    changed, not just whether a gate passed. With `baseline = candidate`
+    (the pre-P0 placeholder) there was no before to compare against, so
+    a run could report "accept" without anyone knowing what it accepted.
+    """
+    snap = read_snapshot(skill_dir)
+    cur = skill_dir / "SKILL.md"
+    if snap is None or not cur.is_file():
+        return ""
+    try:
+        before = snap.read_text(encoding="utf-8")
+        after = cur.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    delta = diff_bodies(before, after)
+    if not delta["changed"]:
+        return ""
+    lines = [
+        "## Change",
+        "",
+        f"SKILL.md vs the pre-run snapshot: "
+        f"**+{delta['added']} / -{delta['removed']}** lines.",
+        "",
+    ]
+    if delta["lines"]:
+        lines.append("```diff")
+        lines.extend(delta["lines"])
+        lines.append("```")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bool = False, candidate: Path | None = None) -> Path:
     out = skill_dir / "audit-report.md"
     gotchas = _suggested_gotchas(root_cause)
@@ -143,6 +184,9 @@ def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bo
     cost = _cost_section(skill_dir)
     if cost:
         body += f"\n{cost}\n"
+    change = _change_section(skill_dir)
+    if change:
+        body += f"\n{change}\n"
     out.write_text(body, encoding="utf-8")
     if verdict and not bundled and candidate is not None and candidate.exists():
         # v2-T5: for a non-bundled skill on accept, the candidate SKILL.md
@@ -235,6 +279,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # is paid by every session whether or not the skill is invoked, so
     # the number belongs in the first marker, not only in the report.
     _cost = measure_skill(skill_dir)
+    # P0: capture the BEFORE state, before the forward phase can touch the
+    # skill. This is the real baseline: the rubric compares the candidate
+    # against this snapshot, not against itself (the pre-P0 placeholder
+    # was `baseline = candidate`, so the judge compared the candidate to
+    # its own reflection and no before/after was measurable).
+    _snapshot = snapshot_skill(skill_dir)
     _emit(0, "audit", f"root_cause={report.root_cause} scope={report.recommend_scope} "
                       f"index={_cost.index_tokens}tok load={_cost.load_tokens}tok")
     if args.scope != report.recommend_scope and report.confidence >= 0.85 and report.root_cause != "missing":
@@ -278,7 +328,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         rresult = RouteResult("diagnose-only", 2, str(e), degraded=True)
     _emit(3, "forward", f"target={rresult.forwarded_to} degraded={rresult.degraded} exit={rresult.exit_code} reason={rresult.reason or '—'}")
     candidate = skill_dir / "SKILL.md"
-    baseline = candidate  # RULING-8 part 2 (v2-T2 modified): baseline is consumed by the rubric prompt (see judge_triple.py); T7 v1 / v2 pass candidate as both. Phase 5 may also re-pin SHA via the race check.
+    # P0: a REAL baseline. The pre-run snapshot of SKILL.md, so the rubric
+    # compares the candidate against what it was BEFORE this run. The old
+    # `baseline = candidate` placeholder meant Phase 4 compared the
+    # candidate with itself — no before/after was measurable, and
+    # best.md had nothing to diff against. When no snapshot exists (no
+    # SKILL.md, or a malformed one) we fall back to the candidate so the
+    # pipeline still runs; the report then shows no Change section.
+    baseline = _snapshot if (_snapshot and _snapshot.exists()) else candidate
     # v1 wires no rubric; RULING-8: rubric state is derived from llm_call at the call
     # site, never inferred from v.llm_score (0.0 both when skipped and when clamped).
     # P0-2: when --rubric-model is given, a real judge is wired in. The judge
@@ -340,6 +397,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # SHA — otherwise a refuse would lock the skill out of future improvement.
     if v.accept:
         write_baseline(skill_dir, current_sha if candidate.exists() else "")
+    # The snapshot has served its purpose: it was the before state for
+    # this run's comparison and the report's Change section. Leaving it
+    # behind would make the NEXT run's snapshot a no-op (snapshot_skill
+    # refuses to overwrite), so the next run would compare against a
+    # two-runs-old state.
+    clear_snapshot(skill_dir)
     return 0 if v.accept else 2
 
 if __name__ == "__main__":
