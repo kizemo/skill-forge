@@ -12,6 +12,7 @@ from scripts._lib.baseline_log import race, write_baseline
 from scripts._lib.bundle import is_bundled
 from scripts._lib.sha import content_hash
 from scripts.judge_triple import judge
+from scripts._lib.token_cost import measure_skill
 from scripts._lib.llm_channel import (
     discover_rubric_script,
     http_channel_from_env,
@@ -79,6 +80,53 @@ def _emit(phase: int, name: str, msg: str) -> None:
     print(f"[phase {phase}] {name}: {msg}", flush=True)
 
 
+def _cost_section(skill_dir: Path) -> str:
+    """Render the measured token cost of the target skill.
+
+    This is the section that makes the cost axis matter. Perplexity's
+    three tiers, each with its own budget and its own pain:
+
+      index  ~100 tok  paid by EVERY session, EVERY user, always
+      load   ~5,000 tok  paid on every trigger
+      files  unlimited  paid only when the agent reads one
+
+    A number in the report is what makes the problem visible. A rule
+    without a number is a rule nobody applies.
+    """
+    cost = measure_skill(skill_dir)
+    if cost.index_tokens == 0 and cost.load_tokens == 0:
+        return ""
+    lines = [
+        "## Cost",
+        "",
+        "| tier | used | budget | status |",
+        "|---|---|---|---|",
+    ]
+    for tier, used, budget, status in cost.as_report_rows():
+        budget_s = f"~{budget}" if budget else "unlimited"
+        lines.append(f"| {tier} | {used} tok | {budget_s} | {status} |")
+    lines.append("")
+    if cost.index_over_budget:
+        lines.append(
+            f"index tier is {cost.index_tokens - cost.index_budget} tokens over "
+            f"budget — it is paid by every session whether or not this skill is "
+            f"invoked, and it stacks across the whole installed portfolio."
+        )
+    if cost.load_over_budget:
+        lines.append(
+            f"load tier is {cost.load_tokens - cost.load_budget} tokens over "
+            f"budget — paid on every trigger. Move the heavy detail into "
+            f"references/ and state the read condition in the body."
+        )
+    if cost.files_breakdown:
+        lines.append("")
+        lines.append("Files tier (unlimited, paid only when read):")
+        for rel, n in sorted(cost.files_breakdown.items(), key=lambda kv: -kv[1])[:12]:
+            lines.append(f"- `{rel}` — {n} tok")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bool = False, candidate: Path | None = None) -> Path:
     out = skill_dir / "audit-report.md"
     gotchas = _suggested_gotchas(root_cause)
@@ -92,6 +140,9 @@ def _materialize(skill_dir: Path, verdict: bool, root_cause: str, *, bundled: bo
         # the target skill's Red Flags / Anti-Patterns section.
         bullets = "\n".join(f"- {g}" for g in gotchas)
         body += f"\n## Suggested gotchas\n\n{bullets}\n"
+    cost = _cost_section(skill_dir)
+    if cost:
+        body += f"\n{cost}\n"
     out.write_text(body, encoding="utf-8")
     if verdict and not bundled and candidate is not None and candidate.exists():
         # v2-T5: for a non-bundled skill on accept, the candidate SKILL.md
@@ -180,7 +231,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     bundled = is_bundled(skill_dir)  # v2-T4: computed once, reused by _materialize
     report = audit(skill_dir)
-    _emit(0, "audit", f"root_cause={report.root_cause} scope={report.recommend_scope}")
+    # P0: the cost axis starts at Phase 0. The index tier is the one that
+    # is paid by every session whether or not the skill is invoked, so
+    # the number belongs in the first marker, not only in the report.
+    _cost = measure_skill(skill_dir)
+    _emit(0, "audit", f"root_cause={report.root_cause} scope={report.recommend_scope} "
+                      f"index={_cost.index_tokens}tok load={_cost.load_tokens}tok")
     if args.scope != report.recommend_scope and report.confidence >= 0.85 and report.root_cause != "missing":
         print(f"warning: requested scope '{args.scope}' differs from recommended '{report.recommend_scope}'", file=sys.stderr)
     _emit(1, "scope", f"user chose {args.scope}")

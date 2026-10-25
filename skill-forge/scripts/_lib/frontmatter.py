@@ -7,6 +7,11 @@ import re
 from pathlib import Path
 from typing import Any
 import yaml
+from scripts._lib.token_cost import (
+    INDEX_BUDGET,
+    LOAD_BUDGET,
+    estimate_tokens,
+)
 
 class FrontmatterError(Exception):
     """Raised when frontmatter is missing, malformed, or absent."""
@@ -140,6 +145,20 @@ def validate_skill_body(path: Path, fm: Any) -> list[str]:
                 f"(Perplexity: skill is a folder, not a file)"
             )
 
+    # 2.z load tier: the body, measured. Perplexity's target is ~5,000
+    # tokens. REPORTED, not refused (user ruling 2026-10-25) — a hard
+    # ceiling would block legitimate heavy skills, and skill-forge's
+    # contract is "audit, judge, materialize", never "refuse on a
+    # principle".
+    load_tokens = estimate_tokens(body)
+    if load_tokens > LOAD_BUDGET:
+        warnings.append(
+            f"body: load tier is {load_tokens} tokens, over the "
+            f"~{LOAD_BUDGET}-token target (paid on every trigger). Move the "
+            f"heavy detail into references/ and state the read condition in "
+            f"the body."
+        )
+
     return warnings
 
 
@@ -243,4 +262,38 @@ def validate_skill_frontmatter(
     elif not re.match(r"^\d+\.\d+\.\d+", version):
         warnings.append(f"frontmatter: `version` is {version!r}, expected semver MAJOR.MINOR.PATCH")
 
+    # 1.9 index tier: the always-loaded metadata, measured.
+    # Perplexity: the index tier is ~100 tokens per skill, paid by EVERY
+    # session and EVERY user whether or not the skill is ever invoked —
+    # and it stacks across the whole installed portfolio. This is the
+    # tier that is cheapest to fix and most expensive to ignore.
+    # WARNING only (user ruling 2026-10-25), consistent with the rest
+    # of the validator: suboptimal, not broken.
+    index_tokens = estimate_tokens(_render_frontmatter(fm))
+    if index_tokens > INDEX_BUDGET:
+        warnings.append(
+            f"frontmatter: index tier is {index_tokens} tokens, over the "
+            f"~{INDEX_BUDGET}-token budget (paid by every session, every user). "
+            f"Trim the description and drop duplicate trigger phrases — the "
+            f"`triggers:` list is the only place phrases belong."
+        )
+
     return warnings
+
+
+def _render_frontmatter(fm: dict[str, Any]) -> str:
+    """Render the frontmatter mapping back to text for measurement.
+
+    The index tier is the always-loaded metadata; measuring it needs the
+    text a host would inject, so the mapping is rendered in a stable,
+    representative form. It is an estimate of the injected text, not a
+    byte-exact reproduction of any particular host's serializer.
+    """
+    lines: list[str] = []
+    for key, value in fm.items():
+        if isinstance(value, list):
+            lines.append(f"{key}:")
+            lines.extend(f"  - {item}" for item in value)
+        else:
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)
