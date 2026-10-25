@@ -2,18 +2,14 @@
 name: skill-forge
 version: 0.2.0
 description: >-
-  Use when a skill is not producing the quality you want, when you want to
-  bootstrap a benchmark for a new skill, when an existing skill needs
-  measurable improvement against a frozen baseline, or when retiring a
-  skill that has outlived its purpose.
+  Use when an Agent Skill underperforms, fails to trigger, or needs a
+  benchmark, an improvement, or a clean retirement.
 triggers:
   - "improve this skill"
   - "skill won't trigger"
   - "audit skill quality"
-  - "fix skill underperformance"
   - "make a skill benchmark"
   - "retire old skill"
-  - "skill produces shallow output"
 tools:
   - bash
   - read
@@ -24,9 +20,7 @@ tools:
 mutating: true
 brain_first: exempt
 when_to_use: >-
-  Use when the user asks: "improve this skill", "skill won't trigger",
-  "audit skill quality", "fix skill underperformance", "make a skill benchmark",
-  "retire old skill", or "skill produces shallow output".
+  Improving, benchmarking, or retiring an Agent Skill.
 ---
 
 # skill-forge

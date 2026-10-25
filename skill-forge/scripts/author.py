@@ -72,6 +72,14 @@ class AuthorSpec:
     scripts: list[dict[str, str]] = field(default_factory=list)
     # Optional extra frontmatter fields.
     extra_frontmatter: dict[str, Any] = field(default_factory=dict)
+    # Eval-set inputs. The POSITIVE queries are derived from `triggers:`
+    # (the machine-readable short-circuit and the human-readable rubric
+    # must be the same list, or the eval measures a routing configuration
+    # that no longer exists). The other two kinds have to be supplied.
+    negative_queries: list[Any] = field(default_factory=list)
+    neighbor_queries: list[Any] = field(default_factory=list)
+    # Set False to skip generating references/hero-queries.md.
+    hero_queries: bool = True
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -84,6 +92,9 @@ class AuthorSpec:
             "assets": list(self.assets),
             "scripts": list(self.scripts),
             "extra_frontmatter": dict(self.extra_frontmatter),
+            "negative_queries": list(self.negative_queries),
+            "neighbor_queries": list(self.neighbor_queries),
+            "hero_queries": self.hero_queries,
         }
 
 
@@ -118,6 +129,9 @@ def load_spec(path: Path) -> AuthorSpec:
         assets=[dict(a) for a in (data.get("assets") or [])],
         scripts=[dict(s) for s in (data.get("scripts") or [])],
         extra_frontmatter=dict(data.get("extra_frontmatter") or {}),
+        negative_queries=list(data.get("negative_queries") or []),
+        neighbor_queries=list(data.get("neighbor_queries") or []),
+        hero_queries=bool(data.get("hero_queries", True)),
     )
     _validate(spec)
     return spec
@@ -154,6 +168,23 @@ def _yaml_block(text: str, indent: str = "  ") -> str:
     return ">- \n" + "\n".join(f"{indent}{ln}" for ln in lines)
 
 
+def _one_sentence(text: str) -> str:
+    """The first sentence of `text`.
+
+    `when_to_use` is the marketplace one-liner. Defaulting it to the
+    WHOLE description re-creates the duplication that blew the index
+    tier on real skills: the same words in two fields, both always
+    loaded. One sentence is the point of the field.
+    """
+    t = (text or "").strip()
+    for sep in (". ", "。", "\n"):
+        if sep in t:
+            head = t.split(sep)[0].strip()
+            if head:
+                return head + ("." if not head.endswith((".", "。")) else "")
+    return t
+
+
 def _render_frontmatter(spec: AuthorSpec) -> str:
     """The frontmatter. The description carries NO trigger list — the
     `triggers:` field is the single home for trigger phrases. That
@@ -173,7 +204,7 @@ def _render_frontmatter(spec: AuthorSpec) -> str:
     extra.setdefault("version", "0.1.0")
     extra.setdefault("mutating", False)
     extra.setdefault("brain_first", "exempt")
-    extra.setdefault("when_to_use", spec.description)
+    extra.setdefault("when_to_use", _one_sentence(spec.description))
     for key, value in extra.items():
         if isinstance(value, list):
             parts.append(f"{key}:")
@@ -181,6 +212,106 @@ def _render_frontmatter(spec: AuthorSpec) -> str:
         else:
             parts.append(f"{key}: {value}")
     return "\n".join(parts)
+
+
+def _split_query(entry: str | dict) -> tuple[str, str]:
+    """A query entry is either a plain string or {"query":..., "why":...}.
+
+    The rationale is what makes the eval file usable: "another skill's
+    lane" tells the reader nothing about WHICH lane, so the next
+    author has to re-derive it.
+    """
+    if isinstance(entry, dict):
+        return str(entry.get("query", "")), str(entry.get("why", ""))
+    return str(entry), ""
+
+
+def _render_hero_queries(spec: AuthorSpec) -> str:
+    """The standard `references/hero-queries.md`.
+
+    Perplexity's eval-first principle: a skill ships with a written
+    registry of the queries it should match on BEFORE it is finalized.
+    Three kinds, and the third is the dangerous one — a neighbor-
+    confusion query surfaces at the resolver level, not the trigger
+    level, and it is what "action at a distance" breaks.
+
+    The positive queries are DERIVED from `triggers:` so the
+    machine-readable short-circuit list and the human-readable eval
+    rubric are the same list and cannot drift.
+    """
+    positives = list(spec.triggers)
+    lines = [
+        f"# Hero queries for {spec.name}",
+        "",
+        "**Purpose:** Perplexity's eval-first principle — a skill should have a",
+        "written registry of the queries the agent should match on before the skill",
+        "is finalized. This file is the source of truth for the eval set.",
+        "Re-run after any change to `description` or `triggers`.",
+        "",
+        "The positive queries below are derived from the `triggers:` list in",
+        "`SKILL.md` — the machine-readable short-circuit and this human-readable",
+        "rubric are the same list, so they cannot drift.",
+        "",
+        "---",
+        "",
+        "## Positive queries (this skill SHOULD match)",
+        "",
+        "| # | Query | Why this matches |",
+        "|---|---|---|",
+    ]
+    for i, q in enumerate(positives, start=1):
+        lines.append(f"| {i} | \"{q}\" | matches the `triggers:` entry |")
+    if not positives:
+        lines.append("| — | _(none yet — add at least one, or the resolver has "
+                     "nothing to short-circuit on)_ | |")
+    lines += [
+        "",
+        "## Negative queries (this skill should NOT match)",
+        "",
+        "| # | Query | Why this skill is wrong |",
+        "|---|---|---|",
+    ]
+    for i, q in enumerate(spec.negative_queries, start=1):
+        query, why = _split_query(q)
+        lines.append(f'| {i} | "{query}" | {why or "another skill's lane"} |')
+    if not spec.negative_queries:
+        lines.append("| — | _(none yet — negatives correct more than positives)_ | |")
+    lines += [
+        "",
+        "## Neighbor-confusion queries (could match but is NOT this skill's lane)",
+        "",
+        "| # | Query | Closer skill / why |",
+        "|---|---|---|",
+    ]
+    for i, q in enumerate(spec.neighbor_queries, start=1):
+        query, why = _split_query(q)
+        lines.append(f'| {i} | "{query}" | {why or "a sibling skill claims it more precisely"} |')
+    if not spec.neighbor_queries:
+        lines.append("| — | _(none yet — the dangerous kind: it surfaces at the "
+                     "resolver level, not the trigger level)_ | |")
+    lines += [
+        "",
+        "---",
+        "",
+        "## Maintenance",
+        "",
+        "When the resolver short-circuits wrong (a positive query does not fire",
+        "this skill) or fires wrongly (a negative query fires it), add the query to",
+        "the right table and adjust `description` / `triggers` in `SKILL.md`.",
+        "",
+        "**Change 1-2 words at a time**, establish a baseline first, and re-run the",
+        "evals after each step — never rewrite the description wholesale. Adding a",
+        "skill can break pre-existing skills, so re-run the neighbours' evals too.",
+        "",
+        "## Cross-references",
+        "",
+        "- `SKILL.md` — the `triggers:` list is the machine-readable short-circuit;",
+        "  this file is the human-readable eval rubric.",
+        "- `PRINCIPLES.md` § 11 — action at a distance: changing `description` can",
+        "  break neighbours; re-run these evals when the change set changes.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _render_read_conditions(spec: AuthorSpec) -> str:
@@ -195,9 +326,14 @@ def _render_read_conditions(spec: AuthorSpec) -> str:
     are COPIED and filled — an empty read-condition would read as
     "never", so assets get their own default condition.
     """
-    if not spec.references and not spec.assets and not spec.scripts:
+    if not (spec.references or spec.assets or spec.scripts or spec.hero_queries):
         return ""
     rows = []
+    if spec.hero_queries:
+        rows.append(
+            "| `references/hero-queries.md` | you are changing this skill's "
+            "description or triggers — re-run the eval set |"
+        )
     for entry in spec.references:
         path = entry.get("path", "")
         when = entry.get("when", "")
@@ -284,6 +420,12 @@ def author_skill(spec: AuthorSpec, out_dir: Path) -> AuthorResult:
     body = _render_body(spec)
     result.skill_md_path.write_text(f"---\n{fm}\n---\n\n{body}", encoding="utf-8")
     result.written.append("SKILL.md")
+
+    if spec.hero_queries:
+        hq = out_dir / "references" / "hero-queries.md"
+        hq.parent.mkdir(parents=True, exist_ok=True)
+        hq.write_text(_render_hero_queries(spec), encoding="utf-8")
+        result.written.append("references/hero-queries.md")
 
     for entry in spec.references:
         p = out_dir / entry["path"]
