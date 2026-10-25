@@ -299,12 +299,15 @@ this project has to earn its keep against it.
 | Dimension | Anthropic `skill-creator` | `skill-forge` |
 |---|---|---|
 | **Shape** | A prompt + scripts + an `agents/` subagent directory — the agent reads it and follows it | A standalone CLI with a 6-phase pipeline plus a write lane |
-| **Write lane** | A writing recipe the agent follows by hand | ✅ **Built-in author** (`--scope create --spec`): generates SKILL.md + `references/` + `assets/` + `scripts/`, **with the token rubric and the progressive-disclosure structure applied at generation time** |
+| **Write lane** | An interview + research flow, a writing guide, and a full **description-optimization loop** (`improve_description.py`: generate trigger eval queries → review → run the loop → apply) | ✅ **Built-in author** (`--scope create --spec`): generates SKILL.md + `references/` + `assets/` + `scripts/`, **with the token rubric and the progressive-disclosure structure applied at generation time**. The interview and the description loop are still the agent's job — skill-forge is the generator, not the interviewer |
 | **Token cost measurement** | `total_tokens` recorded per run; `benchmark.json` reports `pass_rate`, `time`, and `tokens` | ✅ **Same, and more**: a three-tier axis (index / load / files) measured by `scripts/_lib/token_cost.py`, printed in the Phase 0 marker and written to the report's `## Cost` section |
 | **Before / after** | Snapshots the pre-change skill and points the baseline run at the copy | ✅ **Same**: `scripts/_lib/snapshot.py` snapshots the before state in Phase 0, judges the candidate against it, and writes a `## Change` diff (`+4 / -0` lines) to the report |
 | **Body budget** | "< 500 lines ideal"; "> 300 lines → add a table of contents" | ✅ **Token-based**: ~5,000-token load tier (measured, not word-counted), ~100-token index tier; the body ceiling is *reported*, never enforced |
 | **Eval set** | Hero queries: 5-10, positives + negatives, neighbouring-confusion pool | ✅ **The author writes one for every skill** (`references/hero-queries.md`), with the positives **derived from `triggers:`** so the machine-readable short-circuit and the human rubric cannot drift |
-| **Root-cause diagnosis** | None — it tells you a skill failed, not why | ✅ **`audit()` returns `prompt` / `routing` / `contract` / `missing` / `other`** with a confidence score and a **typed** `recommend_scope` (`create` / `improve` / `audit-only` / `retire`) |
+| **Root-cause diagnosis** | Per-assertion grader feedback + an analyzer agent — it tells you *which assertion failed*, not *which class of defect* it is | ✅ **`audit()` returns `prompt` / `routing` / `contract` / `missing` / `other`** with a confidence score and a **typed** `recommend_scope` (`create` / `improve` / `audit-only` / `retire`) — a class, not just a failing check |
+| **Eval presentation** | ✅ A full eval viewer (`eval-viewer/`) — per-assertion grades, qualitative outputs, and a benchmark view | ❌ Plain-text `audit-report.md` — parseable and diffable, but not a dashboard |
+| **Blind comparison** | ✅ A/B the old and new skill without knowing which is which | ❌ The `## Change` diff shows the delta; it does not hide which side is which |
+| **Bundling repeated work** | ✅ Reads the transcripts and notices when every run re-invented the same helper, then bundles it into `scripts/` | ❌ The author will put a script in `scripts/` if the spec says so, but it does not mine transcripts for it |
 | **Safety invariants** | Manual `cp -r` before editing | ✅ **Enforced in code**: a bundled install is refused from forwarding and only ever gets `proposed.md`; the SHA race check refuses with exit `3`; **`SKILL.md` is never overwritten by any path** |
 | **Exit codes** | n/a (a prompt) | `0` accept · `2` refuse · `3` race — three distinct failure modes, CI-routable |
 | **Agent orchestration** | ✅ Same-turn parallel subagents (with-skill + baseline) | ❌ A CLI does not spawn agents — **and it should not**: that is the caller's job |
@@ -338,12 +341,25 @@ first line of the output.
 **5. It is a CLI, not a prompt.** It runs headless, in CI, in a cron job, from
 a different host. It exits with a code a pipeline can branch on.
 
-### 🟡 The one real gap
+### 🟡 The real gaps
 
-**Agent orchestration.** Anthropic's harness runs the with-skill and baseline
-subagents in the same turn; skill-forge is a CLI and does not spawn agents.
-That is a deliberate boundary — a CLI that spawned agents would be tied to one
-harness — but it means the parallel A/B is the caller's job.
+**1. Agent orchestration.** Anthropic's harness runs the with-skill and
+baseline subagents in the same turn, grades each assertion with a grader
+agent, and ships an HTML eval viewer. skill-forge is a CLI and does not spawn
+agents. That is a deliberate boundary — a CLI that spawned agents would be tied
+to one harness — but it means the parallel A/B and the dashboard are the
+caller's job.
+
+**2. The authoring conversation.** Anthropic's skill-creator *interviews* you
+(interview → research → write → report → iterate) and optimizes the
+description against generated trigger queries. skill-forge's author takes a
+finished spec. It generates a compliant skill; it does not interview you into
+one.
+
+**What skill-forge does instead:** it is the *audit and safety* layer, and it
+is a CLI. Use it where you need a machine-checkable verdict, a token cost, a
+before/after diff, and the guarantee that nothing was overwritten. Use
+Anthropic's skill-creator where you need a conversation and a dashboard.
 
 ### The 30-second version
 
@@ -445,6 +461,27 @@ skill-forge/
 │       └── sha.py
 └── tests/                    # 98 tests, split per phase
 ```
+
+### The two vendored reference copies
+
+This repository keeps **two** snapshots of Anthropic's official
+`skill-creator`, and they are not redundant:
+
+| Directory | What it is | Why it is here |
+|---|---|---|
+| `../skill-creator/` | The **Oct 2026** snapshot (7 files): `SKILL.md` + `scripts/init_skill.py` and friends | `scripts/_legacy_init_skill.py` forwards the legacy create scope to `skill-creator/scripts/init_skill.py`. Upstream **removed `init_skill.py`** in the current version (the scaffolding moved to `agents/`), so overwriting this copy would break the shim. |
+| `../skill-creator-upstream/` | The **current** upstream (18 files): `SKILL.md` + `agents/{analyzer,comparator,grader}.md` + `scripts/{run_eval,run_loop,improve_description,aggregate_benchmark,generate_report}.py` + `eval-viewer/` + `references/schemas.md` | The reference the comparison in this README is written against. Upstream evolved a long way: an interview flow, a full eval harness with an HTML viewer, blind comparison, and a description-optimization loop. |
+
+Refresh the upstream copy with:
+
+```bash
+cd /c/Temp && gh api repos/anthropics/skills/tarball/main > repo.tar.gz
+tar -xzf repo.tar.gz --wildcards "*/skills/skill-creator/*"
+cp -r anthropics-skills-*/skills/skill-creator <repo>/skill-creator-upstream
+```
+
+**Do not** overwrite `../skill-creator/` with the current upstream: the
+`init_skill.py` the shim depends on is gone there.
 
 ### Rulings that shape this package
 
@@ -760,12 +797,15 @@ Baseline **只在**接受时重新钉:拒绝不能钉 SHA,否则会把 skill 锁
 | 维度 | Anthropic `skill-creator` | `skill-forge` |
 |---|---|---|
 | **形态** | 提示词 + 脚本 + `agents/` 子 agent 目录 —— agent 读了照着做 | 独立 CLI:6 阶段流水线 + 写作通道 |
-| **写作通道** | 一份写作配方,agent 手工照做 | ✅ **自带 author**(`--scope create --spec`):生成 SKILL.md + `references/` + `assets/` + `scripts/`,**在生成时就施加 token 标尺与渐进式披露结构** |
+| **写作通道** | 访谈 + 调研流程、一份写作指南,以及完整的 **description 优化循环**(`improve_description.py`:生成触发 eval query → 复核 → 跑循环 → 应用) | ✅ **自带 author**(`--scope create --spec`):生成 SKILL.md + `references/` + `assets/` + `scripts/`,**在生成时就施加 token 标尺与渐进式披露结构**。访谈和 description 循环仍然是 agent 的活 —— skill-forge 是生成器,不是访谈者 |
 | **token 成本度量** | 每次运行记录 `total_tokens`;`benchmark.json` 输出 `pass_rate` / `time` / `tokens` | ✅ **一样,而且更多**:三层(index / load / files)由 `scripts/_lib/token_cost.py` 实测,打在 Phase 0 marker 上,写进报告的 `## Cost` 段 |
 | **前后对照** | 快照改动前的 skill,让 baseline run 指向副本 | ✅ **一样**:`scripts/_lib/snapshot.py` 在 Phase 0 快照 before 态,拿候选跟它判分,报告给 `## Change` diff(`+4 / -0` 行) |
 | **正文预算** | 「< 500 lines ideal」;「> 300 lines 要加目录」 | ✅ **按 token 计**:load 层 ~5,000 token(实测,不是数字数)、index 层 ~100 token;正文上限**只报不拦** |
 | **评测集** | hero query:5-10 条,含正例/负例/邻居混淆池 | ✅ **author 给每个 skill 都写一份**(`references/hero-queries.md`),正面 query **由 `triggers:` 派生**,机器可读短路列表与人读的标尺不会漂移 |
-| **根因诊断** | 无 —— 只告诉你这个 skill 挂了,不告诉你为什么 | ✅ **`audit()` 返回 `prompt` / `routing` / `contract` / `missing` / `other`**,带置信度 + **类型化** `recommend_scope`(`create` / `improve` / `audit-only` / `retire`) |
+| **根因诊断** | 逐条断言的 grader 反馈 + 一个 analyzer agent —— 它告诉你*哪条断言挂了*,不告诉你*这是哪一类缺陷* | ✅ **`audit()` 返回 `prompt` / `routing` / `contract` / `missing` / `other`**,带置信度 + **类型化** `recommend_scope`(`create` / `improve` / `audit-only` / `retire`) —— 是一类缺陷,不只是某条检查没过 |
+| **评测呈现** | ✅ 完整的 eval viewer(`eval-viewer/`)—— 逐条断言评分、质性输出、benchmark 视图 | ❌ 纯文本 `audit-report.md` —— 可解析、可 diff,但不是仪表盘 |
+| **盲测对比** | ✅ 不告诉 agent 哪份是新哪份是旧,直接 A/B | ❌ `## Change` diff 展示差异,但不隐藏哪边是哪边 |
+| **把重复劳动打包** | ✅ 读运行记录,发现每次都重新造同一个 helper,就打包进 `scripts/` | ❌ spec 里写了,author 就会放进 `scripts/`;但它不会去挖运行记录 |
 | **安全不变量** | 手工 `cp -r` 备份后再改 | ✅ **代码强制**:bundled install 拒绝转发、只出 `proposed.md`;SHA 竞态检查以 exit `3` 拒绝;**任何路径都不覆盖 `SKILL.md`** |
 | **退出码** | n/a(它是一段提示词) | `0` 接受 · `2` 拒绝 · `3` 竞态 —— 三种失败模式分开,CI 可分支 |
 | **agent 编排** | ✅ 同 turn 并行跑 with-skill / baseline 两个 subagent | ❌ CLI 不 spawn agent —— **而且它不该**:那是调用方的活 |
@@ -792,11 +832,20 @@ Anthropic 的 skill-creator 是就地编辑,靠你自己记得先备份。
 **5. 它是 CLI,不是提示词。** 能 headless 跑、能进 CI、能进定时任务、能在别的机器上跑,
 并且以流水线可分支的退出码结束。
 
-### 🟡 唯一的真实差距
+### 🟡 真实的差距
 
-**agent 编排。** Anthropic 的 harness 在同一个 turn 里并发跑 with-skill 和 baseline 两个
-subagent;skill-forge 是 CLI,不 spawn agent。这是有意的边界 —— 一个会 spawn agent 的 CLI
-就被绑死在某个 harness 上了 —— 但代价是并行 A/B 得由调用方来做。
+**1. agent 编排。** Anthropic 的 harness 在同一个 turn 里并发跑 with-skill 和 baseline 两个
+subagent,用 grader agent 逐条判断言,还提供一个 HTML eval viewer。skill-forge 是 CLI,
+不 spawn agent。这是有意的边界 —— 一个会 spawn agent 的 CLI 就被绑死在某个 harness 上了 ——
+但代价是并行 A/B 和仪表盘得由调用方来做。
+
+**2. 创作过程是对话。** Anthropic 的 skill-creator 会**访谈**你(访谈 → 调研 → 写 → 报告 →
+迭代),并针对生成的触发 query 优化 description。skill-forge 的 author 接受一份成型的 spec。
+它生成一个合规的 skill;它不通过访谈把你引导到那一步。
+
+**skill-forge 的替代定位:** 它是**审计与安全层**,而且是个 CLI。当你要的是可机器判定的结论、
+token 成本、前后 diff,以及"什么都没被覆盖"的保证时用 skill-forge。当你要的是一次对话和一块
+仪表盘时,用 Anthropic 的 skill-creator。
 
 ### 30 秒版总结
 
@@ -895,6 +944,25 @@ skill-forge/
 │       └── sha.py
 └── tests/                    # 98 个测试,按阶段分文件
 ```
+
+### 两个 vendored 参考副本
+
+本仓库保存着 Anthropic 官方 `skill-creator` 的**两个**快照,它们不重复:
+
+| 目录 | 是什么 | 为什么留着 |
+|---|---|---|
+| `../skill-creator/` | **2026-10** 的快照(7 个文件):`SKILL.md` + `scripts/init_skill.py` 等 | `scripts/_legacy_init_skill.py` 把 legacy create 范围转发到 `skill-creator/scripts/init_skill.py`。上游在当前版本**删掉了 `init_skill.py`**(脚手架改成了 `agents/` 驱动),所以就地覆盖会打断这个 shim。 |
+| `../skill-creator-upstream/` | **当前**上游(18 个文件):`SKILL.md` + `agents/{analyzer,comparator,grader}.md` + `scripts/{run_eval,run_loop,improve_description,aggregate_benchmark,generate_report}.py` + `eval-viewer/` + `references/schemas.md` | 本 README 里的对比表就是对着它写的。上游已经走了很远:访谈流程、带 HTML viewer 的完整 eval harness、盲测对比、description 优化循环。 |
+
+刷新上游副本:
+
+```bash
+cd /c/Temp && gh api repos/anthropics/skills/tarball/main > repo.tar.gz
+tar -xzf repo.tar.gz --wildcards "*/skills/skill-creator/*"
+cp -r anthropics-skills-*/skills/skill-creator <repo>/skill-creator-upstream
+```
+
+**不要**用当前上游覆盖 `../skill-creator/`:shim 依赖的 `init_skill.py` 在那边已经没有了。
 
 ### 塑造这个项目的 10 条规则
 
