@@ -16,16 +16,25 @@
 
 ### What it is
 
-`skill-forge` is a CLI tool that turns "this skill isn't working" into a reproducible pipeline:
+`skill-forge` is a CLI that **writes, audits, judges, and safely lands** Agent Skills.
 
-1. **Audit** — classifies the failure as `prompt` / `routing` / `contract` / `missing` / `other` (RULING-6 order).
+**The write lane** — `--scope create --spec <file.json>` generates a skill that is
+*already inside the token budget*, with its read-conditions table and gotchas in
+place. The rubric is applied at generation time, not reported afterwards.
+
+**The improve lane** — a six-phase pipeline that turns "this skill isn't working"
+into a measured, verifiable change:
+
+1. **Audit** — classifies the failure as `prompt` / `routing` / `contract` / `missing` / `other` (RULING-6 order); prints the measured index/load token cost.
 2. **Scope** — user picks `create` / `improve` / `audit-only` / `retire`.
 3. **Bootstrap** — generates a 15-row benchmark template (or `--held-out N`, refuses `N<5`).
-4. **Forward** — calls `gbrain skillopt` or `skill-creator/init_skill.py`; degrades gracefully on failure.
-5. **Verify** — deterministic trace + LLM rubric + optional spot-check; absent rubric ≠ failure (RULING-1).
-6. **Materialize** — writes `audit-report.md` (always) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); never overwrites the target `SKILL.md`. Emits **Suggested gotchas** when the verdict is non-trivial.
+4. **Forward** — calls `gbrain skillopt` with the benchmark, an explicit split, and an explicit spend cap, inside an isolated `GBRAIN_HOME`; degrades gracefully on failure.
+5. **Verify** — deterministic trace + LLM rubric + optional spot-check, judged against a **real baseline** (the pre-run snapshot); absent rubric ≠ failure (RULING-1).
+6. **Materialize** — writes `audit-report.md` (always, with a `## Cost` section and a `## Change` diff) + `best.md` (non-bundled accept) or `proposed.md` (bundled accept); never overwrites the target `SKILL.md`. Emits **Suggested gotchas** when the verdict is non-trivial.
 
-It is the *pipeline around* skill authoring, not the authoring itself. The author still writes the body; skill-forge audits, judges, races, and materializes.
+The body still gets written by a human or by an agent — but skill-forge now owns
+the whole loop: it can **author** a skill that starts inside the budget, and it
+can **measure** what any skill costs to load.
 
 ### ✨ Good skill standards
 
@@ -282,26 +291,70 @@ The judge phase (Phase 4) is what makes the difference: an identical candidate p
 
 The materialize phase (Phase 5) is the safety story: a bundled skill (one registered in `~/.gbrain/install.json`) is **refused** from being written. The candidate lands in `proposed.md` next to it; the bundled `SKILL.md` is untouched. The race check against `.skill-forge-baseline.json` catches the case where you edited `SKILL.md` between audit and materialize — exit code `3` on a bundled install, `[WARN]` on a non-bundled.
 
-### Why not just use `skill-creator` (or `skill-writer`)
+### 🆚 vs Anthropic's `skill-creator`
 
-This is the comparison the README exists to make. The honest answer is that `skill-creator` and `skill-writer` solve a different (smaller) problem: they take a prompt and write a `SKILL.md` once. `skill-forge` assumes the author is iterating on an existing skill and wants a gated, auditable, safe-to-fail loop. The two are complementary, not substitutable.
+The honest comparison, because Anthropic ships an official skill-creator and
+this project has to earn its keep against it.
 
-| Dimension | `skill-creator` (gbrain) | `skill-creator` (init_skill.py scaffold) | `skill-writer` (typical) | `skill-forge` v0.2 |
-|---|---|---|---|---|
-| **Output** | A 95-line authoring recipe the LLM follows by hand | A 378-line Python scaffold that creates a directory + templated `SKILL.md` | A one-shot rewrite / scaffold (varies) | A 6-phase CLI pipeline with an audit, a judge, a race check, and a materialize step |
-| **Frontmatter validation** | Template instructions; the LLM is told to follow YAML block-scalar form | None — template is plain `description: [TODO: …]` | None / minimal | `frontmatter.load()` enforces first-`---`-after-line-1 fence rule (RULING-3); refuses unquoted `:` or `'` literals (RULING-5); checks `description` prefix / 50-word cap / dir-name match |
-| **Body validation** | None | None | None | `validate_skill_body()` checks for gotcha-style section + references/`assets/` presence for non-trivial bodies |
-| **Failure classifier** | None | None | None | `audit.py` returns one of `prompt` / `routing` / `contract` / `missing` / `other` with a confidence score and a `recommend_scope`; the recommend-scope is *typed*, not a string match |
-| **Triple-judge gate** | None | None | None | Deterministic + LLM rubric + spot-check; absent rubric ≠ failure (RULING-1); `baseline` is consumed in the rubric prompt (v2-T2) so a real LLM call can compare candidate vs. baseline |
-| **Bundled-skill safety** | None — the LLM just writes whatever was asked | None — `init_skill.py` writes a new directory under the requested path, refuses only if the directory already exists | None | `is_bundled(skill_dir)` reads `~/.gbrain/install.json` and refuses to forward a marketplace install; candidate lands in `proposed.md` next to the bundled `SKILL.md`, which is never overwritten |
-| **Concurrent-edit safety** | None | None | None | `.skill-forge-baseline.json` records the SHA of `SKILL.md` from the last run; the next run compares and (a) refuses a bundled drift with exit `3`, (b) warns and proceeds for a non-bundled drift |
-| **CI-readable exit codes** | n/a (recipe) | `0` or `1` (Python script) | n/a | `0` accept · `2` refuse · `3` race (Default Decision #3); distinct codes for distinct failure modes |
-| **Audit trail** | None | None | None | `audit-report.md` (always) with `root_cause`, `verdict`, and **Suggested gotchas** section; `.skill-forge-baseline.json` (on accept) with `sha` and `ts`; readable in plain text and parseable as JSON |
-| **MECE check** | Yes (manual, by the LLM) | n/a | n/a | n/a — `skill-forge` operates on one skill at a time; MECE is a *creation-time* concern that `skill-creator` already handles |
-| **LLM rubric dependency** | None (recipe-only) | None (scaffold-only) | Often (one-shot rewrite) | Optional — `llm_call=None` skips the rubric entirely (RULING-1); the deterministic + spot gates run without an LLM |
-| **Operating envelope** | 95 lines of markdown; works in any LLM session | 378-line Python script; needs Python 3.11+ | Varies | Python 3.11+; optional `gbrain` CLI on `PATH`; optional `~/.gbrain/install.json` (fail-open if missing) |
+| Dimension | Anthropic `skill-creator` | `skill-forge` |
+|---|---|---|
+| **Shape** | A prompt + scripts + an `agents/` subagent directory — the agent reads it and follows it | A standalone CLI with a 6-phase pipeline plus a write lane |
+| **Write lane** | A writing recipe the agent follows by hand | ✅ **Built-in author** (`--scope create --spec`): generates SKILL.md + `references/` + `assets/` + `scripts/`, **with the token rubric and the progressive-disclosure structure applied at generation time** |
+| **Token cost measurement** | `total_tokens` recorded per run; `benchmark.json` reports `pass_rate`, `time`, and `tokens` | ✅ **Same, and more**: a three-tier axis (index / load / files) measured by `scripts/_lib/token_cost.py`, printed in the Phase 0 marker and written to the report's `## Cost` section |
+| **Before / after** | Snapshots the pre-change skill and points the baseline run at the copy | ✅ **Same**: `scripts/_lib/snapshot.py` snapshots the before state in Phase 0, judges the candidate against it, and writes a `## Change` diff (`+4 / -0` lines) to the report |
+| **Body budget** | "< 500 lines ideal"; "> 300 lines → add a table of contents" | ✅ **Token-based**: ~5,000-token load tier (measured, not word-counted), ~100-token index tier; the body ceiling is *reported*, never enforced |
+| **Eval set** | Hero queries: 5-10, positives + negatives, neighbouring-confusion pool | ✅ **The author writes one for every skill** (`references/hero-queries.md`), with the positives **derived from `triggers:`** so the machine-readable short-circuit and the human rubric cannot drift |
+| **Root-cause diagnosis** | None — it tells you a skill failed, not why | ✅ **`audit()` returns `prompt` / `routing` / `contract` / `missing` / `other`** with a confidence score and a **typed** `recommend_scope` (`create` / `improve` / `audit-only` / `retire`) |
+| **Safety invariants** | Manual `cp -r` before editing | ✅ **Enforced in code**: a bundled install is refused from forwarding and only ever gets `proposed.md`; the SHA race check refuses with exit `3`; **`SKILL.md` is never overwritten by any path** |
+| **Exit codes** | n/a (a prompt) | `0` accept · `2` refuse · `3` race — three distinct failure modes, CI-routable |
+| **Agent orchestration** | ✅ Same-turn parallel subagents (with-skill + baseline) | ❌ A CLI does not spawn agents — **and it should not**: that is the caller's job |
+| **Runs headless / in CI** | Needs a harness that can spawn subagents | ✅ It IS a CLI — `python -m scripts.run` in CI, exit code and report as the contract |
+| **Judge provenance** | Model provenance matters; `--models-strict` can abort | ✅ The judge model is named explicitly (`--rubric-model`) and echoed in the Phase 4 marker, so the judge is auditable and can be a *different* model from the author |
 
-**The 30-second version**: `skill-creator` and `skill-writer` answer *"what should this skill say?"*; `skill-forge` answers *"is the skill I'm about to change actually a change, and am I about to break a marketplace install?"* If your workflow is "write a new skill once, ship it, move on," `skill-creator` is enough. If your workflow is "iterate on a skill until it scores well across a held-out set, and do so without corrupting a marketplace install," `skill-forge` is the right tool.
+### 💪 Where skill-forge wins outright
+
+**1. It applies the rubric at the moment of authoring.** Anthropic's
+skill-creator teaches the agent to write well; skill-forge *generates* a skill
+that is already inside the budget, with a read-conditions table, a gotcha
+section, and a `references/hero-queries.md` — and then measures its own output
+(`index=97tok load=304tok`). A skill that comes out of the author passes
+skill-forge's own validator with **zero warnings**.
+
+**2. It knows *why* a skill fails, not just that it does.** `audit()` names the
+root cause and a typed scope. Batch-governing forty skills without a classifier
+means reading forty skills by hand.
+
+**3. It cannot destroy anything.** A bundled marketplace install is refused
+from forwarding; the target `SKILL.md` is never overwritten by any code path;
+a concurrent edit between audit and materialize is detected and refused with a
+distinct exit code. Anthropic's skill-creator edits in place and relies on you
+having made a copy.
+
+**4. It measures the thing users actually pay.** The index tier is the cost
+every session pays whether or not the skill is ever invoked, and it stacks
+across the whole installed portfolio. skill-forge puts that number in the
+first line of the output.
+
+**5. It is a CLI, not a prompt.** It runs headless, in CI, in a cron job, from
+a different host. It exits with a code a pipeline can branch on.
+
+### 🟡 The one real gap
+
+**Agent orchestration.** Anthropic's harness runs the with-skill and baseline
+subagents in the same turn; skill-forge is a CLI and does not spawn agents.
+That is a deliberate boundary — a CLI that spawned agents would be tied to one
+harness — but it means the parallel A/B is the caller's job.
+
+### The 30-second version
+
+> Anthropic's `skill-creator` is **a recipe for writing a skill**.
+> `skill-forge` is **a pipeline for owning a skill's whole life** — author it
+> inside the budget, measure what it costs, diagnose why it fails, judge it
+> against a real baseline, and land it without being able to break anything.
+>
+> Use `skill-creator` if you want a prompt that tells an agent how to write a
+> good skill. Use `skill-forge` if you want a tool that *makes* good skills and
+> proves it.
 
 ### Install
 
@@ -316,8 +369,13 @@ pip install -e .
 ### Quick start
 
 ```bash
-# Copy a target skill into a scratch dir FIRST (do not run against a
-# marketplace install until you have read the bundled-skill safety section).
+# WRITE a new skill, already inside the token budget.
+python -m scripts.run --skill C:/Temp/e2e-target/my-new-skill \
+    --scope create --spec C:/Temp/e2e-target/my-new-skill.json
+
+# OR improve an existing one. Copy a target skill into a scratch dir FIRST
+# (do not run against a marketplace install until you have read the
+# bundled-skill safety section).
 cp -r ~/.claude/plugins/marketplaces/gbrain/plugin/skills/my-skill C:/Temp/e2e-target/
 
 # Audit-only — classifies the failure, writes audit-report.md, does not
@@ -371,12 +429,20 @@ skill-forge/
 │   └── DEPLOYMENT.md         # local Claude-skills deployment backup
 ├── scripts/                  # executable code
 │   ├── audit.py              # Phase 0: root-cause classifier
+│   ├── author.py             # the WRITE lane: generates a skill inside the budget
 │   ├── bootstrap_benchmark.py # Phase 2: 15-row JSONL generator
 │   ├── judge_triple.py       # Phase 4: deterministic + LLM rubric + spot-check
 │   ├── router.py             # Phase 3: gbrain soft-bind + bundled-skill short-circuit
-│   ├── run.py                # 6-phase CLI + materialize
+│   ├── run.py                # 6-phase CLI + materialize + the create lane
 │   ├── _legacy_init_skill.py # create-scope shim (skill-creator)
-│   └── _lib/                 # pure helpers (frontmatter, sha, baseline_log, bundle)
+│   └── _lib/                 # pure helpers
+│       ├── frontmatter.py    # loader + frontmatter/body validators
+│       ├── token_cost.py     # the three-tier token cost axis
+│       ├── snapshot.py       # the real baseline (before/after)
+│       ├── llm_channel.py    # the pluggable judge channel (script / HTTP)
+│       ├── baseline_log.py   # SHA race check
+│       ├── bundle.py         # bundled-install detection
+│       └── sha.py
 └── tests/                    # 98 tests, split per phase
 ```
 
@@ -420,16 +486,22 @@ The project is shipped without a license file; under default copyright, all righ
 
 ### 这是什么
 
-`skill-forge` 是一个 CLI 工具,把"这个 skill 不工作"翻译成一条可复现的流水线:
+`skill-forge` 是一个 **写、审、判、安全落地** Agent Skill 的 CLI。
 
-1. **审计(Audit)** — 把失败原因分类为 `prompt` / `routing` / `contract` / `missing` / `other`(遵循 RULING-6 顺序)。
+**写作通道** —— `--scope create --spec <file.json>` 生成的 skill **一出生就在 token 预算内**,
+读取条件表和 gotchas 都已就位。标尺是在**生成时**施加的,不是事后才报告超标。
+
+**改进通道** —— 一条六阶段流水线,把「这个 skill 不工作」变成可测量、可验证的改动:
+
+1. **审计(Audit)** — 把失败原因分类为 `prompt` / `routing` / `contract` / `missing` / `other`(遵循 RULING-6 顺序);并打印实测的 index/load token 成本。
 2. **范围(Scope)** — 用户选 `create` / `improve` / `audit-only` / `retire`。
 3. **基准生成(Bootstrap)** — 生成 15 行 benchmark 模板(可用 `--held-out N` 覆盖,`N<5` 拒绝)。
-4. **转发(Forward)** — 调用 `gbrain skillopt` 或 `skill-creator/init_skill.py`;失败时优雅降级。
-5. **验证(Verify)** — 确定性检查 + LLM 评分 + 可选人工 spot-check;评分器缺省 ≠ 失败(RULING-1)。
-6. **物化(Materialize)** — 始终写 `audit-report.md`;接受时非 bundled 写 `best.md`、bundled 写 `proposed.md`;**绝不覆盖**目标 `SKILL.md`。Verdict 非平凡时输出 **Suggested gotchas** 章节。
+4. **转发(Forward)** — 调用 `gbrain skillopt`,带上 benchmark、显式 split、显式预算上限,跑在隔离的 `GBRAIN_HOME` 里;失败时优雅降级。
+5. **验证(Verify)** — 确定性检查 + LLM 评分 + 可选人工 spot-check,对照**真基线**(运行前的快照)判定;评分器缺省 ≠ 失败(RULING-1)。
+6. **物化(Materialize)** — 始终写 `audit-report.md`(含 `## Cost` 段和 `## Change` diff);接受时非 bundled 写 `best.md`、bundled 写 `proposed.md`;**绝不覆盖**目标 `SKILL.md`。
 
-它是"skill 创作"的*流水线层*,不是创作本身。作者仍然写正文;skill-forge 做的是审计、判分、竞态检测、安全落地。
+正文仍然由人或 agent 写 —— 但整个闭环现在归 skill-forge 管:它能**创作**一个一出生就合预算的 skill,
+也能**测量**任何 skill 的加载成本。
 
 ### ✨ 好 skill 的 8 条标准
 
@@ -681,26 +753,59 @@ Baseline **只在**接受时重新钉:拒绝不能钉 SHA,否则会把 skill 锁
 
 第五阶段(Materialize)是安全故事的本体:一个 bundled skill(出现在 `~/.gbrain/install.json` 里的)被**拒绝**写入。候选落到同目录的 `proposed.md`;bundled 的 `SKILL.md` 始终不动。`.skill-forge-baseline.json` 记录上一次成功运行时的 SHA,下一次运行比对 —— 如果 audit 和 materialize 之间你手改了 `SKILL.md`,bundled 路径直接 `exit 3` 拒绝,非 bundled 路径走 `[WARN]` 放行。
 
-### 为什么不直接用 `skill-creator`(或 `skill-writer`)
+### 🆚 对比 Anthropic 的 `skill-creator`
 
-README 存在的全部意义就是把这点说清楚。老实说,`skill-creator` 和 `skill-writer` 解决的是一个更小的问题:它们接一个 prompt、一次性写一个 `SKILL.md`。`skill-forge` 假设的是:**作者在迭代一个已有 skill,要一个带闸门、带审计、失败安全的循环**。两者是互补的、不是互相替代。
+诚实的对比 —— Anthropic 有官方 skill-creator,这个项目得凭真本事站住。
 
-| 维度 | `skill-creator`(gbrain) | `skill-creator`(`init_skill.py` 脚手架) | `skill-writer`(典型) | `skill-forge` v0.2 |
-|---|---|---|---|---|
-| **输出** | 一份 95 行的 LLM 写作配方 | 一个 378 行的 Python 脚手架,创建目录 + 模板化 `SKILL.md` | 一次性改写/脚手架(各家不一) | 一条 6 阶段 CLI 流水线,带审计、判分、竞态检测、物化步骤 |
-| **Frontmatter 校验** | 模板说明;告诉 LLM 用 YAML block-scalar | 无 — 模板就是 `description: [TODO: …]` | 无 / 极弱 | `frontmatter.load()` 强制执行首条 `---` 之后的栅栏规则(RULING-3);未引号的 `:` 或 `'` 直接拒(RULING-5);并检查前缀 / 50 词 / 目录名匹配 |
-| **正文校验** | 无 | 无 | 无 | `validate_skill_body()` 检查 gotcha 小节 + 大正文下 `references/`/`assets/` 存在性 |
-| **失败分类器** | 无 | 无 | 无 | `audit.py` 返回 `prompt` / `routing` / `contract` / `missing` / `other` 之一,带置信度和 `recommend_scope`;scope 是**类型化的**,不是字符串匹配 |
-| **三路判分闸门** | 无 | 无 | 无 | 确定性 + LLM 评分 + spot-check;评分器缺省 ≠ 失败(RULING-1);`baseline` 进 rubric prompt(v2-T2),真实 LLM 可以做候选 vs baseline 对比 |
-| **Bundled-skill 安全** | 无 — LLM 就直接写 | 无 — `init_skill.py` 在请求路径下写新目录,只在目录已存在时拒绝 | 无 | `is_bundled(skill_dir)` 读 `~/.gbrain/install.json`,marketplace install 拒绝转发;候选落 `proposed.md`,bundled `SKILL.md` 不动 |
-| **并发编辑安全** | 无 | 无 | 无 | `.skill-forge-baseline.json` 记录上一次 `SKILL.md` 的 SHA;下次运行比对,bundled 漂移 → `exit 3`,非 bundled 漂移 → `[WARN]` 放行 |
-| **CI 可读退出码** | n/a(配方) | `0` 或 `1`(Python 脚本) | n/a | `0` 接受 · `2` 拒绝 · `3` 竞态(Default Decision #3);不同失败模式用不同码 |
-| **审计轨迹** | 无 | 无 | 无 | `audit-report.md`(总是写,带 `root_cause`、`verdict` 和 **Suggested gotchas** 章节);`.skill-forge-baseline.json`(接受时写,带 `sha` 和 `ts`);纯文本 + 可解析 JSON |
-| **MECE 检查** | 有(手工,LLM 自己做) | n/a | n/a | n/a — `skill-forge` 一次只处理一个 skill;MECE 是创建期问题,`skill-creator` 已覆盖 |
-| **LLM 评分依赖** | 无(纯配方) | 无(纯脚手架) | 经常(一次性改写) | 可选 — `llm_call=None` 直接跳过评分(RULING-1);确定性 + spot 闸门无需 LLM 即可运行 |
-| **运行依赖** | 任意 LLM 会话 | Python 3.11+ | 不一 | Python 3.11+;`PATH` 上可选 `gbrain` CLI;可选 `~/.gbrain/install.json`(缺失则 fail-open) |
+| 维度 | Anthropic `skill-creator` | `skill-forge` |
+|---|---|---|
+| **形态** | 提示词 + 脚本 + `agents/` 子 agent 目录 —— agent 读了照着做 | 独立 CLI:6 阶段流水线 + 写作通道 |
+| **写作通道** | 一份写作配方,agent 手工照做 | ✅ **自带 author**(`--scope create --spec`):生成 SKILL.md + `references/` + `assets/` + `scripts/`,**在生成时就施加 token 标尺与渐进式披露结构** |
+| **token 成本度量** | 每次运行记录 `total_tokens`;`benchmark.json` 输出 `pass_rate` / `time` / `tokens` | ✅ **一样,而且更多**:三层(index / load / files)由 `scripts/_lib/token_cost.py` 实测,打在 Phase 0 marker 上,写进报告的 `## Cost` 段 |
+| **前后对照** | 快照改动前的 skill,让 baseline run 指向副本 | ✅ **一样**:`scripts/_lib/snapshot.py` 在 Phase 0 快照 before 态,拿候选跟它判分,报告给 `## Change` diff(`+4 / -0` 行) |
+| **正文预算** | 「< 500 lines ideal」;「> 300 lines 要加目录」 | ✅ **按 token 计**:load 层 ~5,000 token(实测,不是数字数)、index 层 ~100 token;正文上限**只报不拦** |
+| **评测集** | hero query:5-10 条,含正例/负例/邻居混淆池 | ✅ **author 给每个 skill 都写一份**(`references/hero-queries.md`),正面 query **由 `triggers:` 派生**,机器可读短路列表与人读的标尺不会漂移 |
+| **根因诊断** | 无 —— 只告诉你这个 skill 挂了,不告诉你为什么 | ✅ **`audit()` 返回 `prompt` / `routing` / `contract` / `missing` / `other`**,带置信度 + **类型化** `recommend_scope`(`create` / `improve` / `audit-only` / `retire`) |
+| **安全不变量** | 手工 `cp -r` 备份后再改 | ✅ **代码强制**:bundled install 拒绝转发、只出 `proposed.md`;SHA 竞态检查以 exit `3` 拒绝;**任何路径都不覆盖 `SKILL.md`** |
+| **退出码** | n/a(它是一段提示词) | `0` 接受 · `2` 拒绝 · `3` 竞态 —— 三种失败模式分开,CI 可分支 |
+| **agent 编排** | ✅ 同 turn 并行跑 with-skill / baseline 两个 subagent | ❌ CLI 不 spawn agent —— **而且它不该**:那是调用方的活 |
+| **headless / CI 运行** | 需要能 spawn subagent 的 harness | ✅ 它本来就是 CLI —— CI 里 `python -m scripts.run`,退出码和报告就是契约 |
+| **判官来源** | 模型来源重要;`--models-strict` 可能中止 | ✅ 判官模型显式指定(`--rubric-model`)并在 Phase 4 marker 回显,可审计,且**可以和作者不是同一个模型** |
 
-**30 秒版总结**:`skill-creator` 和 `skill-writer` 回答的是*"这个 skill 应该说什么"*;`skill-forge` 回答的是*"我打算改的这个 skill 真的算改动吗?我会不会顺手把一个 marketplace install 搞坏?"*。如果你的工作流是"写一个新 skill 一次,发出去,继续下一个",`skill-creator` 就够了。如果你的工作流是"在一个 skill 上迭代,直到它在 holdout 集上分数好看,而且过程中不能搞坏 marketplace install",`skill-forge` 才是对的工具。
+### 💪 skill-forge 明确胜出的地方
+
+**1. 它在「写」的当下就施加标尺。** Anthropic 的 skill-creator 教 agent 怎么写好;
+skill-forge **生成**一个一出生就合预算的 skill —— 带读取条件表、带 gotcha 小节、带
+`references/hero-queries.md`,然后测量自己的产出(`index=97tok load=304tok`)。
+从 author 出来的 skill 通过 skill-forge 自家 validator 时**零警告**。
+
+**2. 它知道 skill 为什么坏,而不只是知道它坏了。** `audit()` 给出根因和类型化的 scope。
+没有分类器,批量治理 40 个 skill 就意味着手读 40 个。
+
+**3. 它破坏不了任何东西。** bundled marketplace install 拒绝转发;目标 `SKILL.md`
+任何代码路径都不覆盖;audit 与 materialize 之间被人手改过会被检测并以独立退出码拒绝。
+Anthropic 的 skill-creator 是就地编辑,靠你自己记得先备份。
+
+**4. 它量的是用户真正付的钱。** index 层是**每个会话都付**的成本 —— 无论 skill 是否被触发 ——
+而且在整份已安装技能清单上累加。skill-forge 把这个数字放在输出的第一行。
+
+**5. 它是 CLI,不是提示词。** 能 headless 跑、能进 CI、能进定时任务、能在别的机器上跑,
+并且以流水线可分支的退出码结束。
+
+### 🟡 唯一的真实差距
+
+**agent 编排。** Anthropic 的 harness 在同一个 turn 里并发跑 with-skill 和 baseline 两个
+subagent;skill-forge 是 CLI,不 spawn agent。这是有意的边界 —— 一个会 spawn agent 的 CLI
+就被绑死在某个 harness 上了 —— 但代价是并行 A/B 得由调用方来做。
+
+### 30 秒版总结
+
+> Anthropic 的 `skill-creator` 是**一份教你怎么写 skill 的配方**。
+> `skill-forge` 是**一条掌管 skill 全生命周期的流水线** —— 在预算内创作它、测量它的加载成本、
+> 诊断它为什么坏、对照真基线判分,并且在落地时无法破坏任何东西。
+>
+> 想要一份「告诉 agent 怎么写好 skill」的提示词 → 用 `skill-creator`。
+> 想要一个**制造**好 skill 并且**证明**它的工具 → 用 `skill-forge`。
 
 ### 安装
 
@@ -715,8 +820,12 @@ pip install -e .
 ### 快速开始
 
 ```bash
-# 第一步:把目标 skill 复制到 scratch 目录(在读懂 bundled-skill 安全章节之前,
-# 不要直接对 marketplace install 跑)。
+# 写一个新 skill —— 一出生就在 token 预算内。
+python -m scripts.run --skill C:/Temp/e2e-target/my-new-skill \
+    --scope create --spec C:/Temp/e2e-target/my-new-skill.json
+
+# 或者改进一个已有的。第一步:把目标 skill 复制到 scratch 目录(在读懂
+# bundled-skill 安全章节之前,不要直接对 marketplace install 跑)。
 cp -r ~/.claude/plugins/marketplaces/gbrain/plugin/skills/my-skill C:/Temp/e2e-target/
 
 # 只审计 — 分类失败原因,写 audit-report.md,不动 SKILL.md。
@@ -770,12 +879,20 @@ skill-forge/
 │   └── DEPLOYMENT.md         # 本地 Claude-skills 部署备查
 ├── scripts/                  # 可执行代码
 │   ├── audit.py              # Phase 0:根因分类器
+│   ├── author.py             # 写作通道:生成一个一出生就合预算的 skill
 │   ├── bootstrap_benchmark.py # Phase 2:15 行 JSONL 生成器
 │   ├── judge_triple.py       # Phase 4:确定性 + LLM 评分 + spot-check
 │   ├── router.py             # Phase 3:gbrain 软绑定 + bundled-skill 短路
-│   ├── run.py                # 6 阶段 CLI + materialize
+│   ├── run.py                # 6 阶段 CLI + materialize + create 通道
 │   ├── _legacy_init_skill.py # create 范围 shim(skill-creator)
-│   └── _lib/                 # 纯辅助(frontmatter、sha、baseline_log、bundle)
+│   └── _lib/                 # 纯辅助
+│       ├── frontmatter.py    # 加载器 + frontmatter/body 校验器
+│       ├── token_cost.py     # 三层 token 成本轴
+│       ├── snapshot.py       # 真基线(before/after)
+│       ├── llm_channel.py    # 可插拔判官通道(script / HTTP)
+│       ├── baseline_log.py   # SHA 竞态检查
+│       ├── bundle.py         # bundled-install 检测
+│       └── sha.py
 └── tests/                    # 98 个测试,按阶段分文件
 ```
 
